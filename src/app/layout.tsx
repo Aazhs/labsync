@@ -16,11 +16,16 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LabSync — Intelligent Lab IDE",
-  description: "Diagnostic intelligence for college programming labs. Zero-setup cloud IDE with real-time monitoring, AI-guided hints, and instructor dashboards.",
+  title: "LabSync — Real-Time Code Diagnostics for Programming Labs",
+  description: "Zero-setup cloud IDE with real-time diagnostic intelligence. Automatically classifies student code errors across 60+ students simultaneously.",
   icons: {
-    icon: '/favicon.svg',
-    apple: '/logo.png',
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon.png', type: 'image/png', sizes: '32x32' },
+    ],
+    apple: [
+      { url: '/apple-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
   },
 };
 
