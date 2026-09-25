@@ -15,8 +15,12 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SignalClass — Intelligent Lab IDE",
-  description: "The professor who always knows where to look. Zero-setup cloud IDE with diagnostic intelligence for college programming labs.",
+  title: "LabSync — Intelligent Lab IDE",
+  description: "Diagnostic intelligence for college programming labs. Zero-setup cloud IDE with real-time monitoring, AI-guided hints, and instructor dashboards.",
+  icons: {
+    icon: '/favicon.svg',
+    apple: '/logo.png',
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -24,7 +28,24 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var theme = localStorage.getItem('labsync-theme');
+                  if (theme === 'light') {
+                    document.documentElement.setAttribute('data-theme', 'light');
+                  }
+                } catch(e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

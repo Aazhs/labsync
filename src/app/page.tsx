@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { useTheme } from '@/lib/theme';
 import {
   Zap,
   ArrowRight,
@@ -14,6 +15,8 @@ import {
   BookOpen,
   ExternalLink,
   ChevronRight,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 /* ─── Scroll reveal hook ─── */
@@ -82,6 +85,19 @@ function useCountUp(end: number, duration: number = 2000, start: boolean = false
   }, [end, duration, start]);
 
   return count;
+}
+
+function ThemeToggle() {
+  const { theme, toggle } = useTheme();
+  return (
+    <button
+      className="btn-icon"
+      onClick={toggle}
+      title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+    >
+      {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+    </button>
+  );
 }
 
 export default function LandingPage() {
@@ -160,11 +176,12 @@ export default function LandingPage() {
             letterSpacing: '-0.03em',
             color: 'var(--text-primary)',
           }}>
-            SignalClass
+            LabSync
           </span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <ThemeToggle />
           <button className="btn btn-ghost" onClick={() => router.push('/ide')}>
             Student IDE
           </button>
@@ -193,7 +210,7 @@ export default function LandingPage() {
         </h1>
 
         <p className="hero-subtitle" style={heroDelay(2)}>
-          SignalClass replaces the passive lab session with diagnostic intelligence —
+          LabSync replaces the passive lab session with diagnostic intelligence —
           so professors spend time <em style={{ color: 'var(--text-primary)', fontStyle: 'normal', fontWeight: 600 }}>solving problems</em>, not discovering them.
         </p>
 
@@ -234,7 +251,7 @@ export default function LandingPage() {
           <div className="preview-card">
             <Image
               src="/images/ide-preview.jpg"
-              alt="SignalClass IDE — zero-setup cloud code editor"
+              alt="LabSync IDE — zero-setup cloud code editor"
               width={1200}
               height={675}
               style={{ width: '100%', height: 'auto' }}
@@ -306,7 +323,7 @@ export default function LandingPage() {
           <div className="preview-card">
             <Image
               src="/images/dashboard-preview.jpg"
-              alt="SignalClass Dashboard — real-time student monitoring"
+              alt="LabSync Dashboard — real-time student monitoring"
               width={1200}
               height={675}
               style={{ width: '100%', height: 'auto' }}
@@ -380,7 +397,7 @@ export default function LandingPage() {
 
       {/* ─── Footer ─── */}
       <footer className="landing-footer">
-        <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>SignalClass</span>
+        <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>LabSync</span>
         {' · '}
         Diagnostic intelligence for college programming labs
         <br />

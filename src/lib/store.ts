@@ -12,31 +12,31 @@ export const LANGUAGES: Language[] = [
     id: 71,
     name: 'python',
     label: 'Python 3',
-    defaultCode: '# Welcome to SignalClass IDE\n# Write your Python code here\n\ndef main():\n    print("Hello, SignalClass!")\n\nif __name__ == "__main__":\n    main()\n',
+    defaultCode: '# Welcome to LabSync IDE\n# Write your Python code here\n\ndef main():\n    print("Hello, LabSync!")\n\nif __name__ == "__main__":\n    main()\n',
   },
   {
     id: 62,
     name: 'java',
     label: 'Java',
-    defaultCode: '// Welcome to SignalClass IDE\n\npublic class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello, SignalClass!");\n    }\n}\n',
+    defaultCode: '// Welcome to LabSync IDE\n\npublic class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello, LabSync!");\n    }\n}\n',
   },
   {
     id: 54,
     name: 'cpp',
     label: 'C++',
-    defaultCode: '// Welcome to SignalClass IDE\n#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << "Hello, SignalClass!" << endl;\n    return 0;\n}\n',
+    defaultCode: '// Welcome to LabSync IDE\n#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << "Hello, LabSync!" << endl;\n    return 0;\n}\n',
   },
   {
     id: 50,
     name: 'c',
     label: 'C',
-    defaultCode: '// Welcome to SignalClass IDE\n#include <stdio.h>\n\nint main() {\n    printf("Hello, SignalClass!\\n");\n    return 0;\n}\n',
+    defaultCode: '// Welcome to LabSync IDE\n#include <stdio.h>\n\nint main() {\n    printf("Hello, LabSync!\\n");\n    return 0;\n}\n',
   },
   {
     id: 63,
     name: 'javascript',
     label: 'JavaScript',
-    defaultCode: '// Welcome to SignalClass IDE\n\nfunction main() {\n    console.log("Hello, SignalClass!");\n}\n\nmain();\n',
+    defaultCode: '// Welcome to LabSync IDE\n\nfunction main() {\n    console.log("Hello, LabSync!");\n}\n\nmain();\n',
   },
 ];
 

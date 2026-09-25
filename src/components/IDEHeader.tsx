@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useIDEStore, LANGUAGES } from '@/lib/store';
+import { useTheme } from '@/lib/theme';
 import {
   Play,
   Square,
@@ -14,6 +15,8 @@ import {
   Minus,
   Plus,
   Keyboard,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 interface IDEHeaderProps {
@@ -34,6 +37,7 @@ export default function IDEHeader({ onRun, onStop }: IDEHeaderProps) {
   } = useIDEStore();
 
   const [showSettings, setShowSettings] = useState(false);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   return (
     <>
@@ -59,7 +63,7 @@ export default function IDEHeader({ onRun, onStop }: IDEHeaderProps) {
               letterSpacing: '-0.03em',
               color: 'var(--text-primary)',
             }}>
-              SignalClass
+              LabSync
             </span>
           </div>
 
@@ -201,6 +205,14 @@ export default function IDEHeader({ onRun, onStop }: IDEHeaderProps) {
             title="AI Lab Assistant"
           >
             <Sparkles size={15} />
+          </button>
+
+          <button
+            className="btn-icon"
+            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            onClick={toggleTheme}
+          >
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </button>
 
           <button

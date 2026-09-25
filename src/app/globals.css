@@ -73,6 +73,86 @@
   --transition-slow: 400ms var(--ease-out-expo);
 }
 
+/* ═══════════════════════════════════════════
+   LIGHT MODE
+   ═══════════════════════════════════════════ */
+[data-theme="light"] {
+  --bg-primary: #faf8f5;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f2efe9;
+  --bg-elevated: #eae6df;
+  --bg-hover: #e4e0d8;
+  --bg-card: #ffffff;
+  --bg-surface: #f5f3ee;
+
+  --brand: #b87d2f;
+  --brand-light: #d4943a;
+  --brand-dark: #9a6824;
+  --brand-muted: #a07832;
+  --brand-glow: rgba(184, 125, 47, 0.06);
+  --brand-glow-strong: rgba(184, 125, 47, 0.12);
+  --brand-gradient: linear-gradient(135deg, #b87d2f, #d4943a);
+
+  --accent-success: #2d7a5a;
+  --accent-success-light: #3d8c6f;
+  --accent-success-bg: rgba(45, 122, 90, 0.08);
+  --accent-warning: #b87d2f;
+  --accent-warning-bg: rgba(184, 125, 47, 0.08);
+  --accent-danger: #b03020;
+  --accent-danger-light: #c0392b;
+  --accent-danger-bg: rgba(176, 48, 32, 0.06);
+  --accent-info: #3a6f99;
+  --accent-info-bg: rgba(58, 111, 153, 0.08);
+  --accent-cyan: #3a6f99;
+
+  --text-primary: #1a1714;
+  --text-secondary: #6b6560;
+  --text-muted: #958f88;
+  --text-faint: #c0bab2;
+  --text-tertiary: #958f88;
+  --text-accent: #b87d2f;
+
+  --border: rgba(26, 23, 20, 0.08);
+  --border-hover: rgba(26, 23, 20, 0.15);
+  --border-active: var(--brand);
+  --border-default: rgba(26, 23, 20, 0.08);
+
+  --accent-primary: #b87d2f;
+  --accent-primary-light: #d4943a;
+  --accent-secondary: #3a6f99;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.1);
+  --shadow-glow: 0 0 40px rgba(184, 125, 47, 0.04);
+}
+
+/* Light mode specific overrides */
+[data-theme="light"] body {
+  color-scheme: light;
+}
+
+[data-theme="light"] ::selection {
+  background: rgba(184, 125, 47, 0.2);
+  color: #1a1714;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(26, 23, 20, 0.1);
+}
+
+[data-theme="light"] .landing-nav {
+  background: rgba(250, 248, 245, 0.85);
+}
+
+[data-theme="light"] .btn-primary {
+  color: white;
+}
+
+[data-theme="light"] .preview-card {
+  box-shadow: var(--shadow-md);
+}
+
 @theme inline {
   --color-background: var(--bg-primary);
   --color-foreground: var(--text-primary);
