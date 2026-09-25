@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const inter = Inter({
@@ -30,23 +31,21 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <head>
-        <script
+      <body className="min-h-full flex flex-col">
+        <Script
+          id="theme-init"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `
-              (function() {
-                try {
-                  var theme = localStorage.getItem('labsync-theme');
-                  if (theme === 'light') {
-                    document.documentElement.setAttribute('data-theme', 'light');
-                  }
-                } catch(e) {}
-              })();
+              try {
+                var t = localStorage.getItem('labsync-theme');
+                if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+              } catch(e) {}
             `,
           }}
         />
-      </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+        {children}
+      </body>
     </html>
   );
 }
