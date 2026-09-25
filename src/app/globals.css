@@ -787,76 +787,154 @@ body {
 }
 
 /* Hero */
+/* Hero */
 .hero-section {
   position: relative;
-  padding: 100px 48px 60px;
+  padding: 110px 48px 70px;
   max-width: 1200px;
   margin: 0 auto;
   overflow: visible;
+  isolation: isolate;
 }
 
-/* Animated glow orbs */
+/* Ambient Animated Glow System */
+.hero-glow-wrapper {
+  position: absolute;
+  top: -60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 1280px;
+  height: 600px;
+  pointer-events: none;
+  z-index: 0;
+  overflow: visible;
+}
+
 .hero-glow-orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(80px);
   pointer-events: none;
-  opacity: 0.5;
-  will-change: transform;
+  will-change: transform, opacity;
 }
 
-.hero-glow-orb-1 {
-  width: 500px;
-  height: 500px;
-  background: radial-gradient(circle, rgba(212, 148, 58, 0.12) 0%, transparent 70%);
-  top: -120px;
-  left: -100px;
-  animation: glowFloat1 8s ease-in-out infinite;
+/* Dark Mode Glowing Orbs: Radiant glowing spheres with intense luminous cores */
+.hero-glow-orb-amber {
+  width: 480px;
+  height: 480px;
+  background: radial-gradient(circle at 45% 45%, rgba(255, 215, 130, 0.75) 0%, rgba(245, 158, 11, 0.52) 22%, rgba(234, 88, 12, 0.25) 45%, rgba(180, 83, 9, 0.06) 65%, transparent 75%);
+  top: -30px;
+  left: 10%;
+  filter: blur(40px);
+  mix-blend-mode: screen;
+  animation: glowFloat1 9s ease-in-out infinite alternate;
 }
 
-.hero-glow-orb-2 {
+.hero-glow-orb-cyan {
+  width: 450px;
+  height: 450px;
+  background: radial-gradient(circle at 50% 50%, rgba(210, 245, 255, 0.72) 0%, rgba(56, 189, 248, 0.50) 22%, rgba(99, 102, 241, 0.25) 45%, rgba(30, 58, 138, 0.05) 65%, transparent 75%);
+  top: 30px;
+  right: 8%;
+  filter: blur(42px);
+  mix-blend-mode: screen;
+  animation: glowFloat2 12s ease-in-out infinite alternate;
+}
+
+.hero-glow-orb-emerald {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(91, 141, 184, 0.08) 0%, transparent 70%);
-  top: 50px;
-  right: -80px;
-  animation: glowFloat2 10s ease-in-out infinite;
+  background: radial-gradient(circle at 50% 50%, rgba(200, 255, 230, 0.65) 0%, rgba(16, 185, 129, 0.44) 22%, rgba(5, 150, 105, 0.20) 45%, transparent 70%);
+  bottom: 0px;
+  left: 35%;
+  filter: blur(38px);
+  mix-blend-mode: screen;
+  animation: glowFloat3 14s ease-in-out infinite alternate;
 }
 
-.hero-glow-orb-3 {
-  width: 300px;
-  height: 300px;
-  background: radial-gradient(circle, rgba(61, 140, 111, 0.07) 0%, transparent 70%);
-  bottom: -60px;
-  left: 30%;
-  animation: glowFloat3 12s ease-in-out infinite;
+.hero-glow-orb-spotlight {
+  width: 650px;
+  height: 320px;
+  background: radial-gradient(ellipse at center, rgba(254, 243, 199, 0.45) 0%, rgba(251, 191, 36, 0.30) 25%, rgba(245, 158, 11, 0.12) 48%, transparent 72%);
+  top: 75px;
+  left: 45%;
+  transform: translateX(-50%);
+  filter: blur(36px);
+  mix-blend-mode: screen;
+  animation: glowPulseSpotlight 6s ease-in-out infinite alternate;
 }
 
 @keyframes glowFloat1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(40px, 30px) scale(1.1); }
-  66% { transform: translate(-20px, -20px) scale(0.95); }
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(45px, 35px) scale(1.12); }
+  100% { transform: translate(-25px, -20px) scale(0.95); }
 }
 
 @keyframes glowFloat2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(-50px, 40px) scale(1.15); }
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-50px, 45px) scale(1.15); }
+  100% { transform: translate(20px, -25px) scale(0.92); }
 }
 
 @keyframes glowFloat3 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  40% { transform: translate(30px, -30px) scale(1.08); }
-  80% { transform: translate(-20px, 20px) scale(0.92); }
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(35px, -35px) scale(1.1); }
+  100% { transform: translate(-30px, 20px) scale(0.9); }
 }
 
-[data-theme="light"] .hero-glow-orb-1 {
-  background: radial-gradient(circle, rgba(184, 125, 47, 0.08) 0%, transparent 70%);
+@keyframes glowPulseSpotlight {
+  0% { opacity: 0.7; transform: translateX(-50%) scale(0.95); }
+  100% { opacity: 1; transform: translateX(-50%) scale(1.08); }
 }
-[data-theme="light"] .hero-glow-orb-2 {
-  background: radial-gradient(circle, rgba(58, 111, 153, 0.06) 0%, transparent 70%);
+
+/* Light Mode Glowing Orbs: Rich warm & crisp pastel ambient washes */
+[data-theme="light"] .hero-glow-orb {
+  filter: blur(55px);
 }
-[data-theme="light"] .hero-glow-orb-3 {
-  background: radial-gradient(circle, rgba(45, 122, 90, 0.05) 0%, transparent 70%);
+[data-theme="light"] .hero-glow-orb-amber {
+  mix-blend-mode: multiply;
+  background: radial-gradient(circle at 45% 45%, rgba(245, 158, 11, 0.45) 0%, rgba(251, 191, 36, 0.22) 35%, rgba(217, 119, 6, 0.08) 60%, transparent 75%);
+}
+[data-theme="light"] .hero-glow-orb-cyan {
+  mix-blend-mode: multiply;
+  background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.40) 0%, rgba(147, 197, 253, 0.20) 35%, rgba(37, 99, 235, 0.06) 60%, transparent 75%);
+}
+[data-theme="light"] .hero-glow-orb-emerald {
+  mix-blend-mode: multiply;
+  background: radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.38) 0%, rgba(110, 231, 183, 0.18) 35%, rgba(5, 150, 105, 0.06) 60%, transparent 75%);
+}
+[data-theme="light"] .hero-glow-orb-spotlight {
+  mix-blend-mode: multiply;
+  background: radial-gradient(ellipse at center, rgba(251, 191, 36, 0.32) 0%, rgba(245, 158, 11, 0.14) 35%, transparent 70%);
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+}
+
+@keyframes heroEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-animate-0 {
+  animation: heroEntrance 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0s both;
+}
+.hero-animate-1 {
+  animation: heroEntrance 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both;
+}
+.hero-animate-2 {
+  animation: heroEntrance 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+}
+.hero-animate-3 {
+  animation: heroEntrance 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
 }
 
 .hero-tag {

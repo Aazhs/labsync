@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="./public/images/labsync-brand.png" alt="LabSync" width="140" style="border-radius: 20px;" />
+
 # LabSync
 
 **Diagnostic intelligence for college programming labs.**

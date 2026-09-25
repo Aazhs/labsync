@@ -125,12 +125,6 @@ export default function LandingPage() {
   const s3 = useCountUp(5, 1200, statsVisible);
   const s4 = useCountUp(90, 2000, statsVisible);
 
-  const heroDelay = useCallback((i: number) => ({
-    opacity: mounted ? 1 : 0,
-    transform: mounted ? 'translateY(0)' : 'translateY(20px)',
-    transition: `all 0.6s var(--ease-out-expo) ${0.1 * i}s`,
-  }), [mounted]);
-
   const features = [
     { num: '01', title: 'Zero-Setup Cloud IDE', desc: 'Students open a link and start coding. No compilers, no config, no version hell.' },
     { num: '02', title: 'Live Code Sync', desc: 'Follow Mode mirrors the professor\'s editor to every student in real-time.' },
@@ -185,48 +179,53 @@ export default function LandingPage() {
 
       {/* ─── Hero ─── */}
       <section className="hero-section">
-        {/* Animated glow orbs */}
-        <div className="hero-glow-orb hero-glow-orb-1" />
-        <div className="hero-glow-orb hero-glow-orb-2" />
-        <div className="hero-glow-orb hero-glow-orb-3" />
-
-        <div className="hero-tag" style={heroDelay(0)}>
-          <span style={{
-            width: 5, height: 5, borderRadius: '50%',
-            background: 'var(--accent-success-light)',
-            animation: 'pulse-dot 2s ease-in-out infinite',
-          }} />
-          Intelligent Lab Platform
+        {/* Animated ambient glow orbs */}
+        <div className="hero-glow-wrapper" aria-hidden="true">
+          <div className="hero-glow-orb hero-glow-orb-amber" />
+          <div className="hero-glow-orb hero-glow-orb-cyan" />
+          <div className="hero-glow-orb hero-glow-orb-emerald" />
+          <div className="hero-glow-orb hero-glow-orb-spotlight" />
         </div>
 
-        <h1 className="hero-title" style={heroDelay(1)}>
-          The professor who<br />
-          always knows{' '}
-          <span className="hero-accent">where to look.</span>
-        </h1>
+        <div className="hero-content">
+          <div className="hero-tag hero-animate-0">
+            <span style={{
+              width: 5, height: 5, borderRadius: '50%',
+              background: 'var(--accent-success-light)',
+              animation: 'pulse-dot 2s ease-in-out infinite',
+            }} />
+            Intelligent Lab Platform
+          </div>
 
-        <p className="hero-subtitle" style={heroDelay(2)}>
-          LabSync replaces the passive lab session with diagnostic intelligence —
-          so professors spend time <em style={{ color: 'var(--text-primary)', fontStyle: 'normal', fontWeight: 600 }}>solving problems</em>, not discovering them.
-        </p>
+          <h1 className="hero-title hero-animate-1">
+            The professor who<br />
+            always knows{' '}
+            <span className="hero-accent">where to look.</span>
+          </h1>
 
-        <div style={{ display: 'flex', gap: 12, ...heroDelay(3) }}>
-          <button
-            className="btn btn-primary"
-            onClick={() => router.push('/ide')}
-            style={{ padding: '10px 22px', fontSize: 13 }}
-          >
-            <Code2 size={15} />
-            Open Student IDE
-          </button>
-          <button
-            className="btn btn-secondary"
-            onClick={() => router.push('/dashboard')}
-            style={{ padding: '10px 22px', fontSize: 13 }}
-          >
-            <LayoutDashboard size={15} />
-            Instructor Dashboard
-          </button>
+          <p className="hero-subtitle hero-animate-2">
+            LabSync replaces the passive lab session with diagnostic intelligence —
+            so professors spend time <em style={{ color: 'var(--text-primary)', fontStyle: 'normal', fontWeight: 600 }}>solving problems</em>, not discovering them.
+          </p>
+
+          <div className="hero-animate-3" style={{ display: 'flex', gap: 12 }}>
+            <button
+              className="btn btn-primary"
+              onClick={() => router.push('/ide')}
+              style={{ padding: '10px 22px', fontSize: 13 }}
+            >
+              <Code2 size={15} />
+              Open Student IDE
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => router.push('/dashboard')}
+              style={{ padding: '10px 22px', fontSize: 13 }}
+            >
+              <LayoutDashboard size={15} />
+              Instructor Dashboard
+            </button>
+          </div>
         </div>
       </section>
 
