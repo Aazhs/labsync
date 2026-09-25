@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { classifyError } from '@/lib/classifier';
 
-// Judge0 CE API — self-hosted or use the public rapid API
-const JUDGE0_API = process.env.JUDGE0_API_URL || 'https://judge0-ce.p.rapidapi.com';
+// Judge0 CE API — default to official free public instance (zero credit card, zero API key required)
+const JUDGE0_API = process.env.JUDGE0_API_URL || 'https://ce.judge0.com';
 const JUDGE0_KEY = process.env.JUDGE0_API_KEY || '';
 
 // Detect if we're on Vercel (no local compilers available)
@@ -27,26 +27,19 @@ async function executeLocal(code: string, languageId: number, stdin: string): Pr
   const lang = langMap[languageId];
 
   if (!lang) {
-    return {
-      stdout: null,
-      stderr: `Language ID ${languageId} is not supported in local execution mode. Please configure Judge0 API.`,
-      compile_output: null,
-      status: { id: 11, description: 'Runtime Error' },
-      time: null,
-      memory: null,
-    };
+    throw new Error(`Language ID ${languageId} not supported in local mode`);
   }
 
+  const { execSync } = await import('child_process');
+  const { writeFileSync } = await import('fs');
+
+  const tmpFile = `/tmp/sc_code.${lang.ext}`;
+  writeFileSync(tmpFile, code);
+
+  const command = lang.compile || `${lang.cmd} ${tmpFile}`;
+  const startTime = Date.now();
+
   try {
-    const { execSync } = await import('child_process');
-    const { writeFileSync } = await import('fs');
-
-    const tmpFile = `/tmp/sc_code.${lang.ext}`;
-    writeFileSync(tmpFile, code);
-
-    const command = lang.compile || `${lang.cmd} ${tmpFile}`;
-    const startTime = Date.now();
-
     const result = execSync(command, {
       timeout: 10000,
       encoding: 'utf-8',
@@ -83,16 +76,25 @@ async function executeLocal(code: string, languageId: number, stdin: string): Pr
   }
 }
 
-// ─── Judge0 API execution ───
+// ─── Judge0 API execution (100% Free Public Instance) ───
 async function executeWithJudge0(code: string, languageId: number, stdin: string) {
+  const isRapidApi = JUDGE0_API.includes('rapidapi.com');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (JUDGE0_KEY) {
+    if (isRapidApi) {
+      headers['X-RapidAPI-Key'] = JUDGE0_KEY;
+      headers['X-RapidAPI-Host'] = 'judge0-ce.p.rapidapi.com';
+    } else {
+      headers['X-Auth-Token'] = JUDGE0_KEY;
+    }
+  }
+
   const submitRes = await fetch(`${JUDGE0_API}/submissions?base64_encoded=true&wait=true`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(JUDGE0_KEY
-        ? { 'X-RapidAPI-Key': JUDGE0_KEY, 'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com' }
-        : {}),
-    },
+    headers,
     body: JSON.stringify({
       source_code: Buffer.from(code).toString('base64'),
       language_id: languageId,
@@ -262,30 +264,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let result;
+    let result = null;
 
-    if (JUDGE0_KEY) {
-      // Best: use Judge0 API (works everywhere)
-      result = await executeWithJudge0(code, languageId, stdin);
-    } else if (!IS_VERCEL) {
-      // Dev: use local execution
-      result = await executeLocal(code, languageId, stdin);
-    } else if (languageId === 63) {
-      // Vercel without Judge0: JS can run in-process
-      result = executeJavaScriptSandboxed(code, stdin);
-    } else if (languageId === 71) {
-      // Vercel without Judge0: Python mock
-      result = executePythonMock(code, stdin);
-    } else {
-      // Vercel without Judge0: other languages
-      result = {
-        stdout: `[Demo Mode] ${languageId === 50 ? 'C' : languageId === 54 ? 'C++' : languageId === 62 ? 'Java' : 'This language'} execution requires Judge0 API.\nSet JUDGE0_API_KEY in Vercel environment variables for full execution.\n\nYour code was received and would be executed with Judge0 configured.`,
-        stderr: null,
-        compile_output: null,
-        status: { id: 3, description: 'Accepted' },
-        time: '0.001',
-        memory: null,
-      };
+    // 1. If running locally on Mac/dev and local compiler is available, use local execution for speed
+    if (!IS_VERCEL && !JUDGE0_KEY) {
+      try {
+        result = await executeLocal(code, languageId, stdin);
+      } catch {
+        result = null;
+      }
+    }
+
+    // 2. Execute via Judge0 CE (ce.judge0.com is 100% free, no credit card or key required)
+    if (!result) {
+      try {
+        result = await executeWithJudge0(code, languageId, stdin);
+      } catch (judgeErr) {
+        console.warn('Judge0 execution failed or offline, falling back:', judgeErr);
+      }
+    }
+
+    // 3. Fallback if Judge0 is unreachable:
+    if (!result) {
+      if (languageId === 63) {
+        result = executeJavaScriptSandboxed(code, stdin);
+      } else if (languageId === 71) {
+        result = executePythonMock(code, stdin);
+      } else {
+        result = {
+          stdout: `[Offline Mode] Code execution service is temporarily unreachable.\nPlease try running again in a few moments.`,
+          stderr: null,
+          compile_output: null,
+          status: { id: 3, description: 'Accepted' },
+          time: '0.001',
+          memory: null,
+        };
+      }
     }
 
     // Classify the error

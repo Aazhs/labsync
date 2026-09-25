@@ -32,16 +32,16 @@ This guide covers deploying LabSync to production. The recommended platform is *
 
    Go to **Project Settings → Environment Variables** and add:
 
-   | Variable | Value | Purpose |
-   |---|---|---|
-   | `JUDGE0_API_KEY` | Your RapidAPI key | Full code execution for all languages |
-   | `JUDGE0_API_URL` | `https://judge0-ce.p.rapidapi.com` | Judge0 API endpoint (default) |
-   | `GEMINI_API_KEY` | Your Gemini API key | AI-powered hint generation |
+   | Variable | Default / Value | Purpose | Required? |
+   |---|---|---|---|
+   | `JUDGE0_API_URL` | `https://ce.judge0.com` | Official free public code runner | **No** — works automatically with 0 config |
+   | `JUDGE0_API_KEY` | *(Optional)* | Only if using a custom/private Judge0 key | **No** — not needed for public instance |
+   | `GEMINI_API_KEY` | Your Gemini key | AI-powered hints via Google AI Studio | **No** — falls back to rule-based hints |
 
-   > **Without these keys**, the app still works in Demo Mode:
-   > - JavaScript executes fully (sandboxed eval)
-   > - Python output is simulated
-   > - AI hints fall back to rule-based patterns
+   > **Out of the box with ZERO environment variables:**
+   > - Code execution runs for real across Python, C, C++, Java, and JavaScript via Judge0's free public cloud.
+   > - Socratic hints work via intelligent rule-based error classification.
+   > - No credit cards, no subscriptions, no third-party accounts required.
 
 4. **Deploy:**
 
@@ -165,13 +165,11 @@ docker run -p 3000:3000 labsync
 
 ## Getting API Keys
 
-### Judge0 (Code Execution)
+### Judge0 (Code Execution — Zero Setup)
 
-1. Go to [rapidapi.com/judge0-official/api/judge0-ce](https://rapidapi.com/judge0-official/api/judge0-ce)
-2. Sign up for a free account
-3. Subscribe to the **Basic** plan (free — 50 requests/day)
-4. Copy your API key from the dashboard
-5. Set `JUDGE0_API_KEY` in your environment
+- **Default:** LabSync automatically connects to Judge0's official free public cloud (`https://ce.judge0.com`).
+- **No signup, no API key, and no credit card required.** Code runs out of the box on both localhost and Vercel.
+- If you have your own self-hosted Judge0 instance or dedicated server, simply set `JUDGE0_API_URL` to your instance URL.
 
 ### Gemini (AI Hints)
 

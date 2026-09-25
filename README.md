@@ -99,12 +99,12 @@ cp .env.example .env.local
 
 | Variable | Purpose | Required |
 |---|---|---|
-| `JUDGE0_API_KEY` | Full code execution (all languages) | No — JS runs without it, Python is mocked |
-| `JUDGE0_API_URL` | Custom Judge0 instance URL | No — defaults to RapidAPI |
-| `GEMINI_API_KEY` | AI-powered hint generation | No — falls back to rule-based hints |
+| `JUDGE0_API_URL` | Code execution engine | No — defaults to `https://ce.judge0.com` (free, no key needed) |
+| `JUDGE0_API_KEY` | Optional private Judge0 key | No — only if using a custom paid/private tier |
+| `GEMINI_API_KEY` | AI-powered hint generation | No — falls back to built-in rule-based classifier |
 | `OPENAI_API_KEY` | Alternative AI provider | No |
 
-> Without any API keys, the app runs in **Demo Mode** — JavaScript executes fully, Python output is simulated, and hints use pattern-based rules.
+> **Zero-Config Execution:** Out of the box, LabSync executes code for real (Python, C, C++, Java, JS) using Judge0's public cloud with no credit cards or API keys required.
 
 ---
 
