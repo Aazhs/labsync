@@ -2,25 +2,21 @@
 
 ### Instructions
 - **Status:** `[ ]` = Todo &nbsp;|&nbsp; `[-]` = In Progress &nbsp;|&nbsp; `[x]` = Done
-- **Format:** `- [ ] [P0/P1/P2/P3] [Bug/Feature] Description (@assignee)`
-- **Priorities:** `P0` = Critical/Broken &nbsp;|&nbsp; `P1` = High &nbsp;|&nbsp; `P2` = Medium &nbsp;|&nbsp; `P3` = Low
+- **Format:** `- [ ] [P0/P1/P2/P3] [Category] Description`
+- **Priorities:** `P0` = Critical &nbsp;|&nbsp; `P1` = High &nbsp;|&nbsp; `P2` = Medium &nbsp;|&nbsp; `P3` = Low
 
 ---
 
-## 🔥 Urgent (`P0` / `P1`)
-- [ ] [P1] [Feature] Add Stdin input box in the IDE console for interactive CLI programs
-- [ ] [P1] [Security] Sanitize and rate-limit code execution submissions on `/api/execute`
-- [ ] [P1] [Bug] Handle WebSocket reconnection in Follow Mode gracefully
+## 🔥 Active Features & Roadmap
 
-## 🛠️ In Progress
-- [-] [P2] [UI/UX] Add keyboard shortcut `Cmd + Enter` / `Ctrl + Enter` to run code
+- [ ] [P1] [Feature] **Lab Lobbies System:** Unique room code creation for each lab session, student join flow, and concurrent multi-lab support
+- [ ] [P1] [Feature] **Stdin & Interactive CLI:** Console standard input stream for C, C++, Python, etc. to support interactive programs (`input()`, `cin`, `scanf()`)
+- [ ] [P1] [Feature] **Teacher Live Pointer:** Broadcast instructor cursor / laser pointer in real-time to all connected students during code explanations
+- [ ] [P1] [Feature] **Live Syntax Error Displayer:** Real-time red squiggly underlines and gutter warnings directly on the code editor
+- [ ] [P2] [Feature] **Git-like Revision & File Tracker:** Version snapshot history tracking across all students with live real-time code inspection for instructors
+- [ ] [P2] [Feature] **Keyboard Shortcuts & Sound Effects:** Keybindings (`Cmd+Enter` / `Ctrl+Enter` to execute) and audio feedback effects on run success/failure
 
-## 📋 Backlog (`P2` / `P3`)
-- [ ] [P2] [Feature] Add code diff view in Instructor Dashboard for student submissions
-- [ ] [P2] [UI/UX] Add full-screen toggle button for Monaco Editor
-- [ ] [P2] [Feature] Export lab analytics report as CSV/PDF for professors
-- [ ] [P3] [Perf] Lazy-load Monaco language workers to reduce initial bundle size
-- [ ] [P3] [UI/UX] Add sound effect toggle for successful test runs
+---
 
 ## ✅ Completed
 - [x] [P0] Replace default Next.js favicon with real LabSync branding
