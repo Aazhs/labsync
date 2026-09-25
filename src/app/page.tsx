@@ -57,29 +57,44 @@ function RevealDiv({ children, className = '', style = {}, delay = 0 }: {
   );
 }
 
-/* ─── Counter animation ─── */
-function useCountUp(end: number, duration: number = 2000, start: boolean = false) {
+/* ─── High-performance RAF Counter (Isolated Leaf Component) ─── */
+function StatCounter({ target, suffix = '', label, active }: {
+  target: number;
+  suffix?: string;
+  label: string;
+  active: boolean;
+}) {
   const [count, setCount] = useState(0);
 
   useEffect(() => {
-    if (!start) return;
-    const stepTime = 20;
-    const steps = duration / stepTime;
-    const increment = end / steps;
-    let current = 0;
-    const interval = setInterval(() => {
-      current += increment;
-      if (current >= end) {
-        setCount(end);
-        clearInterval(interval);
-      } else {
-        setCount(Math.floor(current));
-      }
-    }, stepTime);
-    return () => clearInterval(interval);
-  }, [end, duration, start]);
+    if (!active) return;
+    let startTimestamp: number | null = null;
+    const duration = 1600;
+    let animId: number;
 
-  return count;
+    const step = (timestamp: number) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+      const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      setCount(Math.floor(ease * target));
+
+      if (progress < 1) {
+        animId = requestAnimationFrame(step);
+      } else {
+        setCount(target);
+      }
+    };
+
+    animId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(animId);
+  }, [active, target]);
+
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <div className="stat-number">{count.toLocaleString()}{suffix}</div>
+      <div className="stat-label">{label}</div>
+    </div>
+  );
 }
 
 function ThemeToggle() {
@@ -97,11 +112,8 @@ function ThemeToggle() {
 
 export default function LandingPage() {
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
   const statsRef = useRef<HTMLDivElement>(null);
   const [statsVisible, setStatsVisible] = useState(false);
-
-  useEffect(() => { setMounted(true); }, []);
 
   // Observe stats section
   useEffect(() => {
@@ -119,11 +131,6 @@ export default function LandingPage() {
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-
-  const s1 = useCountUp(1457, 2200, statsVisible);
-  const s2 = useCountUp(60, 1800, statsVisible);
-  const s3 = useCountUp(5, 1200, statsVisible);
-  const s4 = useCountUp(90, 2000, statsVisible);
 
   const features = [
     { num: '01', title: 'Zero-Setup Cloud IDE', desc: 'Students open a link and start coding. No compilers, no config, no version hell.' },
@@ -194,18 +201,18 @@ export default function LandingPage() {
               background: 'var(--accent-success-light)',
               animation: 'pulse-dot 2s ease-in-out infinite',
             }} />
-            Intelligent Lab Platform
+            Zero-Setup Cloud IDE & Live Diagnostics
           </div>
 
           <h1 className="hero-title hero-animate-1">
-            The professor who<br />
-            always knows{' '}
-            <span className="hero-accent">where to look.</span>
+            Diagnose every student’s code.<br />
+            <span className="hero-accent">Before they even raise a hand.</span>
           </h1>
 
           <p className="hero-subtitle hero-animate-2">
-            LabSync replaces the passive lab session with diagnostic intelligence —
-            so professors spend time <em style={{ color: 'var(--text-primary)', fontStyle: 'normal', fontWeight: 600 }}>solving problems</em>, not discovering them.
+            A zero-setup cloud IDE paired with real-time diagnostic intelligence.
+            LabSync automatically classifies student errors — Syntax, Logic, or Conceptual —
+            and alerts instructors with instant diagnoses across the entire lab room.
           </p>
 
           <div className="hero-animate-3" style={{ display: 'flex', gap: 12 }}>
@@ -258,17 +265,10 @@ export default function LandingPage() {
 
       {/* ─── Stats ─── */}
       <section className="stats-bar" ref={statsRef}>
-        {[
-          { value: s1.toLocaleString() + '+', label: 'Institutions Ready' },
-          { value: s2 + '+', label: 'Students Per Lab' },
-          { value: s3.toString(), label: 'Languages' },
-          { value: s4 + '+', label: 'Error Patterns' },
-        ].map((s, i) => (
-          <div key={i} style={{ textAlign: 'center' }}>
-            <div className="stat-number">{s.value}</div>
-            <div className="stat-label">{s.label}</div>
-          </div>
-        ))}
+        <StatCounter target={1457} suffix="+" label="Institutions Ready" active={statsVisible} />
+        <StatCounter target={60} suffix="+" label="Students Per Lab" active={statsVisible} />
+        <StatCounter target={5} label="Languages" active={statsVisible} />
+        <StatCounter target={90} suffix="+" label="Error Patterns" active={statsVisible} />
       </section>
 
       {/* ─── Features Grid ─── */}

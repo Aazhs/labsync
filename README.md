@@ -4,9 +4,9 @@
 
 # LabSync
 
-**Diagnostic intelligence for college programming labs.**
+**Real-time code diagnostics for college programming labs.**
 
-The professor who always knows where to look.
+Diagnose every student’s code. Before they even raise a hand.
 
 [Live Demo](https://labsync.vercel.app) · [Report Bug](https://github.com/aarshpatel1/labsync/issues) · [Request Feature](https://github.com/aarshpatel1/labsync/issues)
 
@@ -16,7 +16,7 @@ The professor who always knows where to look.
 
 ## What is LabSync?
 
-LabSync replaces the passive, screen-shared lab session with **diagnostic intelligence** — so professors spend time *solving problems*, not discovering them.
+LabSync combines a zero-setup browser IDE with **real-time diagnostic intelligence** — automatically classifying student code errors (Syntax → Logic → Conceptual) so professors can help every student in the room immediately.
 
 In a typical 60-student programming lab, the professor has no idea who's stuck, who's idle, and who's copying. LabSync changes that with:
 
