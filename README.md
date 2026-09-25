@@ -176,9 +176,9 @@ Toggle between modes using the ☀️/🌙 button in the nav bar.
 
 ---
 
-## Built For
+## Contributing
 
-**Smart India Hackathon (SIH) 2025** — Problem Statement: Intelligent coding lab platform for educational institutions.
+Contributions are welcome! Please open an issue or submit a pull request.
 
 ---
 

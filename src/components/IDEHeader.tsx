@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import { useIDEStore, LANGUAGES } from '@/lib/store';
 import { useTheme } from '@/lib/theme';
 import {
@@ -10,7 +11,6 @@ import {
   Monitor,
   Settings,
   ChevronDown,
-  Zap,
   X,
   Minus,
   Plus,
@@ -45,18 +45,13 @@ export default function IDEHeader({ onRun, onStop }: IDEHeaderProps) {
         {/* Left: Logo + Mode */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <div style={{
-              width: 30,
-              height: 30,
-              borderRadius: 'var(--radius-sm)',
-              background: 'var(--brand-gradient)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(212, 148, 58, 0.2)',
-            }}>
-              <Zap size={16} color="#080808" strokeWidth={2.5} />
-            </div>
+            <Image
+              src="/logo.png"
+              alt="LabSync"
+              width={28}
+              height={28}
+              style={{ borderRadius: 'var(--radius-sm)' }}
+            />
             <span style={{
               fontSize: 15,
               fontWeight: 800,

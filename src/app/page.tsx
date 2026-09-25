@@ -5,14 +5,9 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useTheme } from '@/lib/theme';
 import {
-  Zap,
   ArrowRight,
   Code2,
   LayoutDashboard,
-  Sparkles,
-  Shield,
-  Monitor,
-  BookOpen,
   ExternalLink,
   ChevronRight,
   Sun,
@@ -159,17 +154,13 @@ export default function LandingPage() {
       {/* ─── Navigation ─── */}
       <nav className="landing-nav">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 32,
-            height: 32,
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--brand-gradient)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-            <Zap size={17} color="#080808" strokeWidth={2.5} />
-          </div>
+          <Image
+            src="/logo.png"
+            alt="LabSync"
+            width={32}
+            height={32}
+            style={{ borderRadius: 'var(--radius-sm)' }}
+          />
           <span style={{
             fontSize: 17,
             fontWeight: 800,
@@ -194,13 +185,18 @@ export default function LandingPage() {
 
       {/* ─── Hero ─── */}
       <section className="hero-section">
+        {/* Animated glow orbs */}
+        <div className="hero-glow-orb hero-glow-orb-1" />
+        <div className="hero-glow-orb hero-glow-orb-2" />
+        <div className="hero-glow-orb hero-glow-orb-3" />
+
         <div className="hero-tag" style={heroDelay(0)}>
           <span style={{
             width: 5, height: 5, borderRadius: '50%',
             background: 'var(--accent-success-light)',
             animation: 'pulse-dot 2s ease-in-out infinite',
           }} />
-          Built for SIH 2025
+          Intelligent Lab Platform
         </div>
 
         <h1 className="hero-title" style={heroDelay(1)}>
@@ -400,8 +396,6 @@ export default function LandingPage() {
         <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>LabSync</span>
         {' · '}
         Diagnostic intelligence for college programming labs
-        <br />
-        <span style={{ marginTop: 4, display: 'inline-block' }}>Prototype — SIH 2025</span>
       </footer>
     </div>
   );
