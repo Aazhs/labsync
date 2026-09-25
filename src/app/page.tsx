@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import {
   Zap,
   ArrowRight,
@@ -11,16 +12,56 @@ import {
   Shield,
   Monitor,
   BookOpen,
-  Users,
-  GraduationCap,
-  Building2,
-  CheckCircle2,
   ExternalLink,
+  ChevronRight,
 } from 'lucide-react';
 
+/* ─── Scroll reveal hook ─── */
+function useScrollReveal() {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          el.classList.add('visible');
+          observer.unobserve(el);
+        }
+      },
+      { threshold: 0.15, rootMargin: '0px 0px -40px 0px' }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return ref;
+}
+
+function RevealDiv({ children, className = '', style = {}, delay = 0 }: {
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+  delay?: number;
+}) {
+  const ref = useScrollReveal();
+  return (
+    <div
+      ref={ref}
+      className={`reveal ${className}`}
+      style={{ ...style, transitionDelay: `${delay}ms` }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/* ─── Counter animation ─── */
 function useCountUp(end: number, duration: number = 2000, start: boolean = false) {
   const [count, setCount] = useState(0);
-  const ref = useRef<NodeJS.Timeout>(null);
 
   useEffect(() => {
     if (!start) return;
@@ -28,18 +69,16 @@ function useCountUp(end: number, duration: number = 2000, start: boolean = false
     const steps = duration / stepTime;
     const increment = end / steps;
     let current = 0;
-
-    ref.current = setInterval(() => {
+    const interval = setInterval(() => {
       current += increment;
       if (current >= end) {
         setCount(end);
-        if (ref.current) clearInterval(ref.current);
+        clearInterval(interval);
       } else {
         setCount(Math.floor(current));
       }
     }, stepTime);
-
-    return () => { if (ref.current) clearInterval(ref.current); };
+    return () => clearInterval(interval);
   }, [end, duration, start]);
 
   return count;
@@ -48,95 +87,89 @@ function useCountUp(end: number, duration: number = 2000, start: boolean = false
 export default function LandingPage() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
+  const statsRef = useRef<HTMLDivElement>(null);
+  const [statsVisible, setStatsVisible] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
-  const stat1 = useCountUp(1457, 2200, mounted);
-  const stat2 = useCountUp(60, 1800, mounted);
-  const stat3 = useCountUp(5, 1400, mounted);
-  const stat4 = useCountUp(90, 2000, mounted);
+  // Observe stats section
+  useEffect(() => {
+    const el = statsRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setStatsVisible(true);
+          observer.unobserve(el);
+        }
+      },
+      { threshold: 0.3 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const s1 = useCountUp(1457, 2200, statsVisible);
+  const s2 = useCountUp(60, 1800, statsVisible);
+  const s3 = useCountUp(5, 1200, statsVisible);
+  const s4 = useCountUp(90, 2000, statsVisible);
+
+  const heroDelay = useCallback((i: number) => ({
+    opacity: mounted ? 1 : 0,
+    transform: mounted ? 'translateY(0)' : 'translateY(20px)',
+    transition: `all 0.6s var(--ease-out-expo) ${0.1 * i}s`,
+  }), [mounted]);
 
   const features = [
-    {
-      icon: <Code2 size={20} strokeWidth={2.2} />,
-      title: 'Zero-Setup Cloud IDE',
-      desc: 'Browser-based code editor with integrated terminal. No compiler installation, no version conflicts — students open a link and start coding.',
-      color: '#6366f1',
-    },
-    {
-      icon: <Monitor size={20} strokeWidth={2.2} />,
-      title: 'Live Code Sync',
-      desc: 'Follow Mode broadcasts the professor\'s code in real-time to every connected student — side-by-side with their own workspace.',
-      color: '#06b6d4',
-    },
-    {
-      icon: <Sparkles size={20} strokeWidth={2.2} />,
-      title: 'AI Lab Assistant',
-      desc: 'Guided hints, never answers. Asks "What happens when i reaches 5?" — not "here\'s the fix." Students build debugging instinct.',
-      color: '#eab308',
-    },
-    {
-      icon: <LayoutDashboard size={20} strokeWidth={2.2} />,
-      title: 'Instructor Dashboard',
-      desc: 'Real-time queue of stuck students, class-wide error heatmap, and per-student progress memory that tracks recurring struggles.',
-      color: '#22c55e',
-    },
-    {
-      icon: <BookOpen size={20} strokeWidth={2.2} />,
-      title: 'Error Classification Engine',
-      desc: 'Three-tier diagnosis: Syntax → Logic → Conceptual. Every error is classified, not just displayed — so the professor knows the root cause.',
-      color: '#ef4444',
-    },
-    {
-      icon: <Shield size={20} strokeWidth={2.2} />,
-      title: 'Academic Integrity',
-      desc: 'AST-level code similarity detection catches structural copying. AI-generated code flagging compares against student coding history.',
-      color: '#3b82f6',
-    },
+    { num: '01', title: 'Zero-Setup Cloud IDE', desc: 'Students open a link and start coding. No compilers, no config, no version hell.' },
+    { num: '02', title: 'Live Code Sync', desc: 'Follow Mode mirrors the professor\'s editor to every student in real-time.' },
+    { num: '03', title: 'AI Lab Assistant', desc: 'Asks "what happens when i reaches 5?" — never gives the answer outright.' },
+    { num: '04', title: 'Instructor Dashboard', desc: 'Real-time queue of stuck students with classified error diagnosis attached.' },
+    { num: '05', title: 'Error Classification', desc: 'Three-tier engine: Syntax → Logic → Conceptual. Every error diagnosed, not just displayed.' },
+    { num: '06', title: 'Academic Integrity', desc: 'AST-level similarity detection. AI-generated code flagging against student history.' },
   ];
 
-  const makeDelay = (i: number) => ({
-    opacity: mounted ? 1 : 0,
-    transform: mounted ? 'translateY(0)' : 'translateY(24px)',
-    transition: `all 0.5s var(--ease-out-expo) ${0.08 * i}s`,
-  });
+  const steps = [
+    'Student opens the zero-setup cloud IDE — no local installation required.',
+    'Professor begins in Follow Mode; code mirrors into every student\'s reference pane.',
+    'Lab shifts to Practice Mode; students code independently.',
+    'When a student hits an error, the classification engine tags it — Syntax, Logic, or Conceptual.',
+    'The AI assistant offers a guided hint — prompting reasoning, not spoon-feeding.',
+    'If unresolved, the issue escalates to the professor\'s dashboard with the diagnosis attached.',
+  ];
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', overflow: 'auto' }}>
+    <div className="landing-page">
       {/* ─── Navigation ─── */}
       <nav className="landing-nav">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
-            width: 34,
-            height: 34,
+            width: 32,
+            height: 32,
             borderRadius: 'var(--radius-sm)',
             background: 'var(--brand-gradient)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 2px 10px rgba(99, 102, 241, 0.3)',
           }}>
-            <Zap size={18} color="white" strokeWidth={2.5} />
+            <Zap size={17} color="#080808" strokeWidth={2.5} />
           </div>
           <span style={{
-            fontSize: 19,
-            fontWeight: 900,
-            letterSpacing: '-0.04em',
-            background: 'var(--brand-gradient)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
+            fontSize: 17,
+            fontWeight: 800,
+            letterSpacing: '-0.03em',
+            color: 'var(--text-primary)',
           }}>
             SignalClass
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button className="btn btn-ghost" onClick={() => router.push('/ide')}>
-            <Code2 size={14} />
             Student IDE
           </button>
           <button className="btn btn-primary" onClick={() => router.push('/dashboard')}>
-            Professor Dashboard
+            Instructor Dashboard
             <ArrowRight size={14} />
           </button>
         </div>
@@ -144,187 +177,214 @@ export default function LandingPage() {
 
       {/* ─── Hero ─── */}
       <section className="hero-section">
-        <div className="hero-glow" />
-        <div className="hero-glow-2" />
-
-        <div className="hero-pill" style={makeDelay(0)}>
+        <div className="hero-tag" style={heroDelay(0)}>
           <span style={{
-            width: 6, height: 6, borderRadius: '50%',
-            background: 'var(--accent-success)',
-            animation: 'pulse-dot 1.5s ease-in-out infinite',
+            width: 5, height: 5, borderRadius: '50%',
+            background: 'var(--accent-success-light)',
+            animation: 'pulse-dot 2s ease-in-out infinite',
           }} />
-          Prototype v1.0 — Built for SIH 2025
+          Built for SIH 2025
         </div>
 
-        <h1 className="hero-title" style={makeDelay(1)}>
-          The professor who always
-          <br />
-          knows{' '}
-          <span className="hero-gradient-text">where to look</span>
+        <h1 className="hero-title" style={heroDelay(1)}>
+          The professor who<br />
+          always knows{' '}
+          <span className="hero-accent">where to look.</span>
         </h1>
 
-        <p className="hero-subtitle" style={makeDelay(2)}>
-          SignalClass replaces the passive, screen-shared lab session with
-          <strong style={{ color: 'var(--text-primary)' }}> diagnostic intelligence</strong> —
-          so professors spend time solving problems, not discovering them.
+        <p className="hero-subtitle" style={heroDelay(2)}>
+          SignalClass replaces the passive lab session with diagnostic intelligence —
+          so professors spend time <em style={{ color: 'var(--text-primary)', fontStyle: 'normal', fontWeight: 600 }}>solving problems</em>, not discovering them.
         </p>
 
-        <div style={{ display: 'flex', gap: 14, ...makeDelay(3) }}>
+        <div style={{ display: 'flex', gap: 12, ...heroDelay(3) }}>
           <button
             className="btn btn-primary"
             onClick={() => router.push('/ide')}
-            style={{ padding: '11px 26px', fontSize: 14 }}
+            style={{ padding: '10px 22px', fontSize: 13 }}
           >
-            <Code2 size={16} />
+            <Code2 size={15} />
             Open Student IDE
-            <ExternalLink size={12} style={{ opacity: 0.6, marginLeft: 2 }} />
           </button>
           <button
             className="btn btn-secondary"
             onClick={() => router.push('/dashboard')}
-            style={{ padding: '11px 26px', fontSize: 14 }}
+            style={{ padding: '10px 22px', fontSize: 13 }}
           >
-            <LayoutDashboard size={16} />
+            <LayoutDashboard size={15} />
             Instructor Dashboard
           </button>
         </div>
       </section>
 
-      {/* ─── Stats (CodeTantra-inspired counter row) ─── */}
-      <section className="stats-section">
+      {/* ─── IDE Preview ─── */}
+      <section className="preview-section">
+        <RevealDiv>
+          <div style={{ marginBottom: 16 }}>
+            <span style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: 'var(--brand-muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.12em',
+            }}>
+              Student Experience
+            </span>
+          </div>
+          <div className="preview-card">
+            <Image
+              src="/images/ide-preview.jpg"
+              alt="SignalClass IDE — zero-setup cloud code editor"
+              width={1200}
+              height={675}
+              style={{ width: '100%', height: 'auto' }}
+              priority
+            />
+          </div>
+        </RevealDiv>
+      </section>
+
+      {/* ─── Stats ─── */}
+      <section className="stats-bar" ref={statsRef}>
         {[
-          { icon: <Building2 size={20} />, value: stat1.toLocaleString(), suffix: '+', label: 'Institutions Ready', color: 'var(--brand-primary-light)' },
-          { icon: <Users size={20} />, value: stat2.toString(), suffix: '+', label: 'Students Per Lab', color: 'var(--accent-cyan)' },
-          { icon: <GraduationCap size={20} />, value: stat3.toString(), suffix: '', label: 'Languages Supported', color: 'var(--accent-success)' },
-          { icon: <CheckCircle2 size={20} />, value: stat4.toString(), suffix: '+', label: 'Error Patterns', color: 'var(--accent-warning)' },
-        ].map((stat, i) => (
-          <div key={i} className="stat-item" style={makeDelay(i + 4)}>
-            <div style={{ color: stat.color, marginBottom: 8 }}>{stat.icon}</div>
-            <div className="stat-number" style={{ color: stat.color }}>
-              {stat.value}{stat.suffix}
-            </div>
-            <div className="stat-label">{stat.label}</div>
+          { value: s1.toLocaleString() + '+', label: 'Institutions Ready' },
+          { value: s2 + '+', label: 'Students Per Lab' },
+          { value: s3.toString(), label: 'Languages' },
+          { value: s4 + '+', label: 'Error Patterns' },
+        ].map((s, i) => (
+          <div key={i} style={{ textAlign: 'center' }}>
+            <div className="stat-number">{s.value}</div>
+            <div className="stat-label">{s.label}</div>
           </div>
         ))}
       </section>
 
       {/* ─── Features Grid ─── */}
-      <section style={{ paddingTop: 60 }}>
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
+      <section style={{ padding: '80px 48px' }}>
+        <RevealDiv style={{ textAlign: 'center', marginBottom: 48 }}>
           <h2 style={{
             fontSize: 32,
             fontWeight: 800,
             letterSpacing: '-0.03em',
-            ...makeDelay(8),
+            marginBottom: 12,
           }}>
-            Seven core components,{' '}
-            <span className="hero-gradient-text">one platform</span>
+            Six core components,{' '}
+            <span className="hero-accent">one platform.</span>
           </h2>
-          <p style={{
-            fontSize: 15,
-            color: 'var(--text-secondary)',
-            maxWidth: 500,
-            margin: '12px auto 0',
-            ...makeDelay(9),
-          }}>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', maxWidth: 460, margin: '0 auto' }}>
             Each built with diagnostic intelligence at its core — not just visibility.
           </p>
-        </div>
+        </RevealDiv>
 
-        <div className="feature-grid">
-          {features.map((f, i) => (
-            <div
-              key={i}
-              className="glass-panel feature-card"
-              style={makeDelay(i + 10)}
-            >
-              <div
-                className="feature-icon"
-                style={{ background: `linear-gradient(135deg, ${f.color}, ${f.color}88)` }}
-              >
-                {f.icon}
+        <RevealDiv delay={100}>
+          <div className="feature-grid">
+            {features.map((f, i) => (
+              <div key={i} className="feature-cell">
+                <div className="feature-number">{f.num}</div>
+                <div className="feature-title">{f.title}</div>
+                <p className="feature-desc">{f.desc}</p>
               </div>
-              <h3 className="feature-title">{f.title}</h3>
-              <p className="feature-desc">{f.desc}</p>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </RevealDiv>
+      </section>
+
+      {/* ─── Dashboard Preview ─── */}
+      <section className="preview-section">
+        <RevealDiv>
+          <div style={{ marginBottom: 16 }}>
+            <span style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: 'var(--brand-muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.12em',
+            }}>
+              Instructor Experience
+            </span>
+          </div>
+          <div className="preview-card">
+            <Image
+              src="/images/dashboard-preview.jpg"
+              alt="SignalClass Dashboard — real-time student monitoring"
+              width={1200}
+              height={675}
+              style={{ width: '100%', height: 'auto' }}
+            />
+          </div>
+        </RevealDiv>
       </section>
 
       {/* ─── How it Works ─── */}
-      <section style={{
-        padding: '60px 40px 80px',
-        maxWidth: 900,
-        margin: '0 auto',
-      }}>
-        <h2 style={{
-          fontSize: 28,
-          fontWeight: 800,
-          letterSpacing: '-0.03em',
-          textAlign: 'center',
-          marginBottom: 40,
-        }}>
-          How a lab session works with{' '}
-          <span className="hero-gradient-text">SignalClass</span>
-        </h2>
+      <section className="steps-section">
+        <RevealDiv>
+          <h2 style={{
+            fontSize: 28,
+            fontWeight: 800,
+            letterSpacing: '-0.03em',
+            marginBottom: 40,
+          }}>
+            How a lab session works.
+          </h2>
+        </RevealDiv>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-          {[
-            { step: 1, text: 'Student opens the zero-setup cloud IDE — no local installation required.' },
-            { step: 2, text: 'Professor begins in Follow Mode; live code mirrors into every student\'s reference pane.' },
-            { step: 3, text: 'Lab shifts to Practice Mode; students code independently.' },
-            { step: 4, text: 'When a student hits an error, the classification engine tags it — Syntax, Logic, or Conceptual.' },
-            { step: 5, text: 'The AI assistant offers one guided hint — prompting the student to reason toward the fix.' },
-            { step: 6, text: 'If unresolved, the issue escalates to the professor\'s live dashboard with the diagnosis attached.' },
-          ].map((item, i) => (
-            <div
-              key={i}
-              style={{
-                display: 'flex',
-                gap: 20,
-                padding: '18px 0',
-                borderBottom: i < 5 ? '1px solid var(--border)' : 'none',
-                ...makeDelay(i + 16),
-              }}
-            >
-              <div style={{
-                minWidth: 36,
-                height: 36,
-                borderRadius: '50%',
-                background: 'var(--brand-glow)',
-                border: '1px solid rgba(99, 102, 241, 0.2)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 14,
-                fontWeight: 700,
-                color: 'var(--brand-primary-light)',
-                flexShrink: 0,
-              }}>
-                {item.step}
-              </div>
-              <p style={{
-                fontSize: 15,
-                lineHeight: 1.7,
-                color: 'var(--text-secondary)',
-                margin: 0,
-                paddingTop: 6,
-              }}>
-                {item.text}
-              </p>
+        {steps.map((text, i) => (
+          <RevealDiv key={i} delay={i * 60}>
+            <div className="step-row">
+              <div className="step-num">{i + 1}</div>
+              <p className="step-text">{text}</p>
             </div>
-          ))}
-        </div>
+          </RevealDiv>
+        ))}
       </section>
+
+      {/* ─── CTA ─── */}
+      <RevealDiv>
+        <section style={{
+          padding: '60px 48px',
+          textAlign: 'center',
+          borderTop: '1px solid var(--border)',
+        }}>
+          <h2 style={{
+            fontSize: 28,
+            fontWeight: 800,
+            letterSpacing: '-0.03em',
+            marginBottom: 16,
+          }}>
+            Ready to try it?
+          </h2>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 28, maxWidth: 400, margin: '0 auto 28px' }}>
+            Open the prototype — no signup, no setup. Just code.
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+            <button
+              className="btn btn-primary"
+              onClick={() => router.push('/ide')}
+              style={{ padding: '11px 28px', fontSize: 14 }}
+            >
+              <Code2 size={16} />
+              Launch IDE
+              <ExternalLink size={12} style={{ opacity: 0.5 }} />
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => router.push('/dashboard')}
+              style={{ padding: '11px 28px', fontSize: 14 }}
+            >
+              View Dashboard
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </section>
+      </RevealDiv>
 
       {/* ─── Footer ─── */}
       <footer className="landing-footer">
-        <div style={{ marginBottom: 6 }}>
-          <span style={{ fontWeight: 700, color: 'var(--text-muted)' }}>SignalClass</span>
-          {' · '}
-          Diagnostic intelligence for college programming labs
-        </div>
-        <div>Prototype — Built for SIH 2025</div>
+        <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>SignalClass</span>
+        {' · '}
+        Diagnostic intelligence for college programming labs
+        <br />
+        <span style={{ marginTop: 4, display: 'inline-block' }}>Prototype — SIH 2025</span>
       </footer>
     </div>
   );

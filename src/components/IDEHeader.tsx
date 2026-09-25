@@ -49,17 +49,15 @@ export default function IDEHeader({ onRun, onStop }: IDEHeaderProps) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(99, 102, 241, 0.25)',
+              boxShadow: '0 2px 8px rgba(212, 148, 58, 0.2)',
             }}>
-              <Zap size={16} color="white" strokeWidth={2.5} />
+              <Zap size={16} color="#080808" strokeWidth={2.5} />
             </div>
             <span style={{
               fontSize: 15,
               fontWeight: 800,
               letterSpacing: '-0.03em',
-              background: 'var(--brand-gradient)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
+              color: 'var(--text-primary)',
             }}>
               SignalClass
             </span>
@@ -78,14 +76,14 @@ export default function IDEHeader({ onRun, onStop }: IDEHeaderProps) {
             textTransform: 'uppercase',
             letterSpacing: '0.08em',
             background: sessionMode === 'follow'
-              ? 'rgba(6, 182, 212, 0.1)'
-              : 'rgba(34, 197, 94, 0.1)',
+              ? 'rgba(91, 141, 184, 0.08)'
+              : 'rgba(61, 140, 111, 0.08)',
             color: sessionMode === 'follow'
-              ? 'var(--accent-cyan)'
+              ? 'var(--accent-info)'
               : 'var(--accent-success)',
             border: `1px solid ${sessionMode === 'follow'
-              ? 'rgba(6, 182, 212, 0.15)'
-              : 'rgba(34, 197, 94, 0.15)'}`,
+              ? 'rgba(91, 141, 184, 0.12)'
+              : 'rgba(61, 140, 111, 0.12)'}`,
           }}>
             <Monitor size={10} />
             {sessionMode === 'follow' ? 'Follow' : 'Practice'}
@@ -228,7 +226,7 @@ export default function IDEHeader({ onRun, onStop }: IDEHeaderProps) {
               borderBottom: '1px solid var(--border)',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Settings size={16} style={{ color: 'var(--brand-primary-light)' }} />
+                <Settings size={16} style={{ color: 'var(--brand-light)' }} />
                 <span style={{ fontWeight: 700, fontSize: 15 }}>Settings</span>
               </div>
               <button
