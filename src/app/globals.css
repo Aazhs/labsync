@@ -818,51 +818,49 @@ body {
   backface-visibility: hidden;
 }
 
-/* Dark Mode Glowing Orbs: Multi-stop organic gradients with low-overhead GPU blur */
+/* Dark Mode Glowing Orbs: Rich, saturated chromatic glow without white hotspots */
 .hero-glow-orb-amber {
-  width: 480px;
-  height: 480px;
+  width: 520px;
+  height: 520px;
   background: radial-gradient(circle at 50% 50%,
-    rgba(255, 215, 130, 0.70) 0%,
-    rgba(245, 158, 11, 0.45) 20%,
-    rgba(234, 88, 12, 0.22) 42%,
-    rgba(180, 83, 9, 0.05) 62%,
-    transparent 75%
+    rgba(217, 119, 6, 0.38) 0%,
+    rgba(212, 148, 58, 0.26) 28%,
+    rgba(180, 83, 9, 0.10) 50%,
+    transparent 72%
   );
   top: -20px;
-  left: 8%;
-  filter: blur(12px);
+  left: 6%;
+  filter: blur(28px);
   animation: glowFloat1 14s ease-in-out infinite alternate;
 }
 
 .hero-glow-orb-cyan {
-  width: 460px;
-  height: 460px;
+  width: 500px;
+  height: 500px;
   background: radial-gradient(circle at 50% 50%,
-    rgba(210, 245, 255, 0.65) 0%,
-    rgba(56, 189, 248, 0.42) 20%,
-    rgba(99, 102, 241, 0.22) 42%,
-    rgba(30, 58, 138, 0.05) 62%,
-    transparent 75%
+    rgba(37, 99, 235, 0.32) 0%,
+    rgba(56, 189, 248, 0.22) 28%,
+    rgba(30, 58, 138, 0.08) 50%,
+    transparent 72%
   );
   top: 30px;
-  right: 8%;
-  filter: blur(14px);
+  right: 6%;
+  filter: blur(30px);
   animation: glowFloat2 16s ease-in-out infinite alternate;
 }
 
 .hero-glow-orb-emerald {
-  width: 400px;
-  height: 400px;
+  width: 440px;
+  height: 440px;
   background: radial-gradient(circle at 50% 50%,
-    rgba(200, 255, 230, 0.60) 0%,
-    rgba(16, 185, 129, 0.38) 20%,
-    rgba(5, 150, 105, 0.18) 42%,
+    rgba(16, 185, 129, 0.28) 0%,
+    rgba(5, 150, 105, 0.18) 28%,
+    rgba(6, 78, 59, 0.06) 50%,
     transparent 72%
   );
   bottom: 10px;
   left: 35%;
-  filter: blur(12px);
+  filter: blur(26px);
   animation: glowFloat3 18s ease-in-out infinite alternate;
 }
 
@@ -870,15 +868,14 @@ body {
   width: 650px;
   height: 320px;
   background: radial-gradient(ellipse at center,
-    rgba(254, 243, 199, 0.38) 0%,
-    rgba(251, 191, 36, 0.24) 25%,
-    rgba(245, 158, 11, 0.10) 48%,
-    transparent 72%
+    rgba(212, 148, 58, 0.18) 0%,
+    rgba(180, 83, 9, 0.08) 45%,
+    transparent 70%
   );
   top: 75px;
   left: 45%;
   transform: translate3d(-50%, 0, 0);
-  filter: blur(10px);
+  filter: blur(24px);
   animation: glowPulseSpotlight 8s ease-in-out infinite alternate;
 }
 
@@ -905,19 +902,19 @@ body {
 
 /* Light Mode Glowing Orbs */
 [data-theme="light"] .hero-glow-orb {
-  filter: blur(16px);
+  filter: blur(28px);
 }
 [data-theme="light"] .hero-glow-orb-amber {
-  background: radial-gradient(circle at 45% 45%, rgba(245, 158, 11, 0.35) 0%, rgba(251, 191, 36, 0.18) 35%, rgba(217, 119, 6, 0.05) 60%, transparent 75%);
+  background: radial-gradient(circle at 50% 50%, rgba(212, 148, 58, 0.25) 0%, rgba(245, 158, 11, 0.12) 35%, transparent 70%);
 }
 [data-theme="light"] .hero-glow-orb-cyan {
-  background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.30) 0%, rgba(147, 197, 253, 0.16) 35%, rgba(37, 99, 235, 0.04) 60%, transparent 75%);
+  background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.22) 0%, rgba(147, 197, 253, 0.10) 35%, transparent 70%);
 }
 [data-theme="light"] .hero-glow-orb-emerald {
-  background: radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.28) 0%, rgba(110, 231, 183, 0.14) 35%, rgba(5, 150, 105, 0.04) 60%, transparent 75%);
+  background: radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.20) 0%, rgba(110, 231, 183, 0.08) 35%, transparent 70%);
 }
 [data-theme="light"] .hero-glow-orb-spotlight {
-  background: radial-gradient(ellipse at center, rgba(251, 191, 36, 0.25) 0%, rgba(245, 158, 11, 0.10) 35%, transparent 70%);
+  background: radial-gradient(ellipse at center, rgba(212, 148, 58, 0.15) 0%, transparent 65%);
 }
 
 .hero-content {
