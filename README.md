@@ -8,7 +8,7 @@
 
 Diagnose every student’s code. Before they even raise a hand.
 
-[Live Demo](https://labsync.vercel.app) · [Report Bug](https://github.com/aarshpatel1/labsync/issues) · [Request Feature](https://github.com/aarshpatel1/labsync/issues)
+[Live Demo](https://labsync.vercel.app) · [Task Board](TASKS.md) · [Report Bug](https://github.com/Aazhs/labsync/issues) · [Request Feature](https://github.com/Aazhs/labsync/issues)
 
 </div>
 
@@ -180,7 +180,7 @@ Toggle between modes using the ☀️/🌙 button in the nav bar.
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request.
+Contributions are welcome! Please check out [TASKS.md](TASKS.md) for open bugs, requested features, and priorities. To propose a change, open an issue or submit a pull request.
 
 ---
 
