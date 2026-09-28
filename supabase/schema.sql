@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS public.lab_lobbies (
     title VARCHAR(255) NOT NULL,
     course VARCHAR(100) NOT NULL DEFAULT 'Computer Science',
     teacher_name VARCHAR(150) NOT NULL,
+    teacher_email VARCHAR(255) DEFAULT 'teacher@mitaoe.ac.in',
     language VARCHAR(50) NOT NULL DEFAULT 'python',
     starter_code TEXT,
     broadcast_code TEXT DEFAULT '',
@@ -22,13 +23,24 @@ CREATE TABLE IF NOT EXISTS public.lab_lobbies (
 -- Index on room_code for instant lookup
 CREATE INDEX IF NOT EXISTS idx_lab_lobbies_room_code ON public.lab_lobbies (room_code);
 CREATE INDEX IF NOT EXISTS idx_lab_lobbies_status ON public.lab_lobbies (status);
+CREATE INDEX IF NOT EXISTS idx_lab_lobbies_teacher ON public.lab_lobbies (teacher_email);
 
--- 2. Create lab_students table
+-- 2. Create teachers table (Institutional @mitaoe.ac.in instructors only)
+CREATE TABLE IF NOT EXISTS public.teachers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(150) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    department VARCHAR(150) DEFAULT 'School of Computer Engineering',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+-- 3. Create lab_students table
 CREATE TABLE IF NOT EXISTS public.lab_students (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     lobby_id UUID REFERENCES public.lab_lobbies(id) ON DELETE CASCADE,
     room_code VARCHAR(6) NOT NULL,
     student_name VARCHAR(150) NOT NULL,
+    prn VARCHAR(50) NOT NULL DEFAULT '',
     status VARCHAR(50) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'coding', 'stuck', 'needs_help', 'completed', 'idle')),
     error_tier VARCHAR(20) DEFAULT 'none',
     error_category TEXT,
@@ -40,8 +52,13 @@ CREATE TABLE IF NOT EXISTS public.lab_students (
 -- Indexes for student lookups within a lobby
 CREATE INDEX IF NOT EXISTS idx_lab_students_room_code ON public.lab_students (room_code);
 CREATE INDEX IF NOT EXISTS idx_lab_students_lobby_id ON public.lab_students (lobby_id);
+CREATE INDEX IF NOT EXISTS idx_lab_students_prn ON public.lab_students (prn);
 
--- 3. Row Level Security (RLS)
+-- 4. Row Level Security (RLS)
+ALTER TABLE public.teachers ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read teachers" ON public.teachers FOR SELECT USING (true);
+CREATE POLICY "Allow public create teachers" ON public.teachers FOR INSERT WITH CHECK (true);
+
 ALTER TABLE public.lab_lobbies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.lab_students ENABLE ROW LEVEL SECURITY;
 

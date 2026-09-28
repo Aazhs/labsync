@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useIDEStore, LANGUAGES } from '@/lib/store';
-import { getLobbyByCode, subscribeToLobbyUpdates } from '@/lib/lobbyService';
+import { getLobbyByCode, subscribeToLobbyUpdates, updateLobbyStatus } from '@/lib/lobbyService';
 import IDEHeader from '@/components/IDEHeader';
 import IDESidebar from '@/components/IDESidebar';
 import FileExplorer from '@/components/FileExplorer';
@@ -70,14 +70,20 @@ function IDEPageContent() {
   const searchParams = useSearchParams();
   const roomCode = searchParams.get('room');
   const studentName = searchParams.get('student');
+  const prn = searchParams.get('prn');
   const role = searchParams.get('role');
+  const [lobbyStatus, setLobbyStatus] = useState<'active' | 'paused' | 'completed'>('active');
 
-  // If joined via a specific lobby, sync lobby language, professor broadcast, and follow mode
+  // If joined via a specific lobby, sync lobby language, professor broadcast, status, and follow mode
   useEffect(() => {
     if (!roomCode) return;
     const syncRoom = async () => {
       const lobby = await getLobbyByCode(roomCode);
       if (!lobby) return;
+
+      if (lobby.status) {
+        setLobbyStatus(lobby.status);
+      }
 
       if (lobby.language) {
         const langObj = LANGUAGES.find((l) => l.name === lobby.language);
@@ -108,6 +114,12 @@ function IDEPageContent() {
     return () => unsub();
   }, [roomCode]);
 
+  const handleStatusChange = async (nextStatus: 'active' | 'paused' | 'completed') => {
+    if (!roomCode) return;
+    setLobbyStatus(nextStatus);
+    await updateLobbyStatus(roomCode, nextStatus);
+  };
+
   // Resizable panel sizes
   const [editorHeight, setEditorHeight] = useState(65); // percentage
   const [explorerWidth, setExplorerWidth] = useState(220); // pixels
@@ -120,6 +132,33 @@ function IDEPageContent() {
 
   const runCode = useCallback(async (customStdin?: unknown) => {
     if (isRunning) return;
+
+    // Check if lab session is currently paused or ended by the instructor
+    if (lobbyStatus === 'paused' && role !== 'teacher') {
+      setActiveOutputTab('terminal');
+      if (!useIDEStore.getState().showOutput) {
+        useIDEStore.getState().toggleOutput();
+      }
+      addOutput({
+        type: 'error',
+        content: '⏸️ Execution Blocked: The instructor has paused this lab session. Code execution will resume when the instructor continues.',
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    if (lobbyStatus === 'completed' && role !== 'teacher') {
+      setActiveOutputTab('terminal');
+      if (!useIDEStore.getState().showOutput) {
+        useIDEStore.getState().toggleOutput();
+      }
+      addOutput({
+        type: 'error',
+        content: '⏹️ Lab Ended: This lab session has been concluded by the instructor.',
+        timestamp: Date.now(),
+      });
+      return;
+    }
 
     // Guard against React SyntheticEvent or other objects passed by click handlers
     const stdinStr = typeof customStdin === 'string' ? customStdin : undefined;
@@ -540,8 +579,49 @@ function IDEPageContent() {
         onStop={stopCode}
         roomCode={roomCode}
         studentName={studentName}
+        prn={prn}
         role={role}
+        lobbyStatus={lobbyStatus}
+        onStatusChange={handleStatusChange}
       />
+
+      {/* Lab Paused / Concluded Notice Banners */}
+      {roomCode && lobbyStatus === 'paused' && (
+        <div style={{
+          background: 'rgba(217, 119, 6, 0.16)',
+          borderBottom: '1px solid rgba(217, 119, 6, 0.35)',
+          color: 'var(--accent-warning)',
+          padding: '6px 16px',
+          fontSize: 12,
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          zIndex: 10,
+        }}>
+          <span>⏸️ Lab Session Paused by Instructor</span>
+          <span style={{ fontWeight: 400, opacity: 0.85 }}>— Code execution is locked while the instructor presents</span>
+        </div>
+      )}
+      {roomCode && lobbyStatus === 'completed' && (
+        <div style={{
+          background: 'rgba(113, 113, 122, 0.16)',
+          borderBottom: '1px solid rgba(113, 113, 122, 0.35)',
+          color: 'var(--text-secondary)',
+          padding: '6px 16px',
+          fontSize: 12,
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          zIndex: 10,
+        }}>
+          <span>⏹️ Lab Session Concluded</span>
+          <span style={{ fontWeight: 400, opacity: 0.85 }}>— This lab session has been stopped by the instructor</span>
+        </div>
+      )}
 
       {/* Activity Sidebar */}
       <IDESidebar />

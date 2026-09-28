@@ -24,6 +24,7 @@ import {
   Radio,
   LayoutDashboard,
   Check,
+  Pause,
 } from 'lucide-react';
 import { updateLobbyBroadcast } from '@/lib/lobbyService';
 
@@ -32,7 +33,10 @@ interface IDEHeaderProps {
   onStop: () => void;
   roomCode?: string | null;
   studentName?: string | null;
+  prn?: string | null;
   role?: string | null;
+  lobbyStatus?: 'active' | 'paused' | 'completed';
+  onStatusChange?: (status: 'active' | 'paused' | 'completed') => void;
 }
 
 export default function IDEHeader({
@@ -40,7 +44,10 @@ export default function IDEHeader({
   onStop,
   roomCode,
   studentName,
+  prn,
   role,
+  lobbyStatus = 'active',
+  onStatusChange,
 }: IDEHeaderProps) {
   const {
     code,
@@ -151,7 +158,7 @@ export default function IDEHeader({
               <span>ROOM #{roomCode}</span>
               {studentName && (
                 <span style={{ color: 'var(--text-secondary)', fontWeight: 500, textTransform: 'none' }}>
-                  ({studentName})
+                  ({studentName}{prn ? ` • PRN: ${prn}` : ''})
                 </span>
               )}
               {role === 'teacher' && (
@@ -162,8 +169,89 @@ export default function IDEHeader({
             </div>
           )}
 
+          {roomCode && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '2px 6px',
+                borderRadius: 3,
+                fontSize: 9,
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                background:
+                  lobbyStatus === 'paused'
+                    ? 'rgba(217, 119, 6, 0.15)'
+                    : lobbyStatus === 'completed'
+                    ? 'rgba(113, 113, 122, 0.15)'
+                    : 'rgba(34, 197, 94, 0.15)',
+                color:
+                  lobbyStatus === 'paused'
+                    ? 'var(--accent-warning)'
+                    : lobbyStatus === 'completed'
+                    ? 'var(--text-muted)'
+                    : 'var(--accent-success)',
+                border: `1px solid ${
+                  lobbyStatus === 'paused'
+                    ? 'rgba(217, 119, 6, 0.3)'
+                    : lobbyStatus === 'completed'
+                    ? 'rgba(113, 113, 122, 0.3)'
+                    : 'rgba(34, 197, 94, 0.3)'
+                }`,
+              }}
+              title={`Lab Session Status: ${lobbyStatus}`}
+            >
+              <span
+                style={{
+                  width: 5,
+                  height: 5,
+                  borderRadius: '50%',
+                  background: 'currentColor',
+                }}
+              />
+              {lobbyStatus}
+            </div>
+          )}
+
           {role === 'teacher' && roomCode && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {lobbyStatus === 'paused' ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => onStatusChange?.('active')}
+                  style={{ height: 24, fontSize: 10, padding: '0 8px', borderRadius: 4, gap: 4 }}
+                  title="Resume lab: allow students to execute code"
+                >
+                  <Play size={10} fill="currentColor" />
+                  Resume Lab
+                </button>
+              ) : lobbyStatus === 'completed' ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => onStatusChange?.('active')}
+                  style={{ height: 24, fontSize: 10, padding: '0 8px', borderRadius: 4, gap: 4 }}
+                  title="Restart lab session for students"
+                >
+                  <Play size={10} fill="currentColor" />
+                  Start Lab
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => onStatusChange?.('paused')}
+                  style={{ height: 24, fontSize: 10, padding: '0 8px', borderRadius: 4, gap: 4 }}
+                  title="Pause lab: prevents student code execution while you lecture"
+                >
+                  <Pause size={10} fill="currentColor" />
+                  Pause Lab
+                </button>
+              )}
+
               <button
                 type="button"
                 className="btn btn-secondary"

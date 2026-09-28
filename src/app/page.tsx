@@ -13,9 +13,18 @@ import {
   Moon,
   Users,
   Sparkles,
+  ShieldCheck,
+  GraduationCap,
+  LogOut,
 } from 'lucide-react';
 import JoinLabModal from '@/components/JoinLabModal';
 import CreateLobbyModal from '@/components/CreateLobbyModal';
+import TeacherAuthModal from '@/components/TeacherAuthModal';
+import {
+  getTeacherSession,
+  logoutTeacher,
+  TeacherUser,
+} from '@/lib/teacherAuth';
 
 /* ─── Scroll reveal hook ─── */
 function useScrollReveal() {
@@ -119,6 +128,12 @@ export default function LandingPage() {
   const [statsVisible, setStatsVisible] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showTeacherAuthModal, setShowTeacherAuthModal] = useState(false);
+  const [teacher, setTeacher] = useState<TeacherUser | null>(null);
+
+  useEffect(() => {
+    setTeacher(getTeacherSession());
+  }, []);
 
   // Observe stats section
   useEffect(() => {
@@ -179,36 +194,78 @@ export default function LandingPage() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <ThemeToggle />
+
+          {/* Student Join Button */}
           <button
             className="btn btn-secondary"
             onClick={() => setShowJoinModal(true)}
             style={{ height: 32, fontSize: 12, padding: '0 12px', gap: 6, borderRadius: 4 }}
+            title="Join Lab as Student with Room Code, Name, and PRN"
           >
             <Users size={13} />
-            Join Lab
+            Join Lab (Student)
           </button>
-          <button
-            className="btn btn-ghost"
-            onClick={() => setShowCreateModal(true)}
-            style={{ height: 32, fontSize: 12, padding: '0 12px', gap: 6, borderRadius: 4 }}
-          >
-            <Sparkles size={13} style={{ color: 'var(--brand-light)' }} />
-            Create Lobby
-          </button>
+
+          {/* Teacher Navigation & Session */}
+          {teacher ? (
+            <>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setShowCreateModal(true)}
+                style={{ height: 32, fontSize: 12, padding: '0 12px', gap: 6, borderRadius: 4 }}
+              >
+                <Sparkles size={13} style={{ color: 'var(--brand-light)' }} />
+                Create Lobby
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => router.push('/dashboard')}
+                style={{ height: 32, fontSize: 12, padding: '0 14px', gap: 6, borderRadius: 4 }}
+              >
+                <GraduationCap size={13} />
+                Dashboard
+                <ArrowRight size={13} />
+              </button>
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  logoutTeacher();
+                  setTeacher(null);
+                }}
+                style={{ height: 32, fontSize: 11, padding: '0 8px', borderRadius: 4 }}
+                title={`Signed in as ${teacher.name} (${teacher.email})`}
+              >
+                <LogOut size={12} />
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setShowTeacherAuthModal(true)}
+                style={{ height: 32, fontSize: 12, padding: '0 12px', gap: 6, borderRadius: 4 }}
+              >
+                <ShieldCheck size={13} style={{ color: 'var(--brand-light)' }} />
+                Teacher Login
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => router.push('/dashboard')}
+                style={{ height: 32, fontSize: 12, padding: '0 14px', gap: 6, borderRadius: 4 }}
+              >
+                Instructor Portal
+                <ArrowRight size={13} />
+              </button>
+            </>
+          )}
+
           <button
             className="btn btn-ghost"
             onClick={() => router.push('/ide')}
-            style={{ height: 32, fontSize: 12, padding: '0 12px', borderRadius: 4 }}
+            style={{ height: 32, fontSize: 12, padding: '0 10px', borderRadius: 4 }}
+            title="Open Sandbox Code Editor"
           >
-            Student IDE
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => router.push('/dashboard')}
-            style={{ height: 32, fontSize: 12, padding: '0 14px', gap: 6, borderRadius: 4 }}
-          >
-            Instructor Dashboard
-            <ArrowRight size={13} />
+            IDE
           </button>
         </div>
       </nav>
@@ -244,32 +301,45 @@ export default function LandingPage() {
             and alerts instructors with instant diagnoses across the entire lab room.
           </p>
 
-          <div className="hero-animate-3" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-            <button
-              className="btn btn-primary"
-              onClick={() => setShowJoinModal(true)}
-              style={{ padding: '11px 22px', fontSize: 13, fontWeight: 700, borderRadius: 4, display: 'flex', alignItems: 'center', gap: 7 }}
-            >
-              <Users size={15} />
-              Join Lab (6-Digit Code)
-              <ArrowRight size={14} />
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => setShowCreateModal(true)}
-              style={{ padding: '11px 20px', fontSize: 13, fontWeight: 600, borderRadius: 4, display: 'flex', alignItems: 'center', gap: 7 }}
-            >
-              <Sparkles size={15} style={{ color: 'var(--brand-light)' }} />
-              Create Lab Lobby
-            </button>
-            <button
-              className="btn btn-ghost"
-              onClick={() => router.push('/ide')}
-              style={{ padding: '11px 18px', fontSize: 13, borderRadius: 4, display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <Code2 size={15} />
-              Open IDE
-            </button>
+          <div className="hero-animate-3" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+              <button
+                className="btn btn-primary"
+                onClick={() => setShowJoinModal(true)}
+                style={{ padding: '11px 22px', fontSize: 13, fontWeight: 700, borderRadius: 4, display: 'flex', alignItems: 'center', gap: 7 }}
+              >
+                <Users size={15} />
+                Student Join Lab (PIN + PRN)
+                <ArrowRight size={14} />
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  if (teacher) {
+                    setShowCreateModal(true);
+                  } else {
+                    setShowTeacherAuthModal(true);
+                  }
+                }}
+                style={{ padding: '11px 20px', fontSize: 13, fontWeight: 600, borderRadius: 4, display: 'flex', alignItems: 'center', gap: 7 }}
+              >
+                <Sparkles size={15} style={{ color: 'var(--brand-light)' }} />
+                Create Lab Lobby (Faculty)
+              </button>
+              <button
+                className="btn btn-ghost"
+                onClick={() => router.push('/ide')}
+                style={{ padding: '11px 18px', fontSize: 13, borderRadius: 4, display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Code2 size={15} />
+                Open Sandbox IDE
+              </button>
+            </div>
+
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <span>🎓 <strong>Students:</strong> Instant entry with 6-digit PIN, Name, and PRN.</span>
+              <span>🔒 <strong>Faculty:</strong> Institutional login (@mitaoe.ac.in).</span>
+            </div>
           </div>
         </div>
       </section>
@@ -438,6 +508,14 @@ export default function LandingPage() {
       {/* ─── Modals ─── */}
       <JoinLabModal isOpen={showJoinModal} onClose={() => setShowJoinModal(false)} />
       <CreateLobbyModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} />
+      <TeacherAuthModal
+        isOpen={showTeacherAuthModal}
+        onClose={() => setShowTeacherAuthModal(false)}
+        onSuccess={(t) => {
+          setTeacher(t);
+          setShowTeacherAuthModal(false);
+        }}
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createLobby, LabLobby } from '@/lib/lobbyService';
 import { LANGUAGES } from '@/lib/store';
+import { getTeacherSession } from '@/lib/teacherAuth';
 import {
   Sparkles,
   X,
@@ -23,9 +24,10 @@ interface CreateLobbyModalProps {
 
 export default function CreateLobbyModal({ isOpen, onClose, onLobbyCreated }: CreateLobbyModalProps) {
   const router = useRouter();
+  const teacherSession = getTeacherSession();
   const [title, setTitle] = useState('');
   const [course, setCourse] = useState('CS 101');
-  const [teacherName, setTeacherName] = useState('Instructor');
+  const [teacherName, setTeacherName] = useState(() => teacherSession?.name || 'Faculty Instructor');
   const [language, setLanguage] = useState('python');
   const [loading, setLoading] = useState(false);
   const [createdLobby, setCreatedLobby] = useState<LabLobby | null>(null);
@@ -44,6 +46,7 @@ export default function CreateLobbyModal({ isOpen, onClose, onLobbyCreated }: Cr
         title: title.trim() || 'Untitled Lab Session',
         course: course.trim() || 'Computer Science',
         teacher_name: teacherName.trim() || 'Instructor',
+        teacher_email: teacherSession?.email || 'teacher@mitaoe.ac.in',
         language,
         starter_code: selectedLangObj.defaultCode,
       });

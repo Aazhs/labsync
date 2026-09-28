@@ -8,6 +8,7 @@ import {
   ArrowRight,
   X,
   User,
+  Hash,
   AlertCircle,
   CheckCircle2,
 } from 'lucide-react';
@@ -26,6 +27,7 @@ export default function JoinLabModal({ isOpen, onClose, initialCode = '' }: Join
       : ['', '', '', '', '', '']
   );
   const [studentName, setStudentName] = useState('');
+  const [studentPrn, setStudentPrn] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verifiedLobby, setVerifiedLobby] = useState<LabLobby | null>(null);
@@ -176,7 +178,12 @@ export default function JoinLabModal({ isOpen, onClose, initialCode = '' }: Join
     }
 
     if (!studentName.trim()) {
-      setError('Please enter your full name or student ID.');
+      setError('Please enter your full name.');
+      return;
+    }
+
+    if (!studentPrn.trim()) {
+      setError('Please enter your college PRN (e.g. 202501040430).');
       return;
     }
 
@@ -184,7 +191,7 @@ export default function JoinLabModal({ isOpen, onClose, initialCode = '' }: Join
     setError(null);
 
     try {
-      const res = await joinLobby(code, studentName.trim());
+      const res = await joinLobby(code, studentName.trim(), studentPrn.trim());
       if (!res.success) {
         setError(res.error || 'Failed to join lab.');
         setLoading(false);
@@ -193,7 +200,7 @@ export default function JoinLabModal({ isOpen, onClose, initialCode = '' }: Join
 
       onClose();
       // Redirect student into IDE with their active room session
-      router.push(`/ide?room=${code}&student=${encodeURIComponent(studentName.trim())}`);
+      router.push(`/ide?room=${code}&student=${encodeURIComponent(studentName.trim())}&prn=${encodeURIComponent(studentPrn.trim())}`);
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'An unexpected error occurred';
       setError(errorMsg);
@@ -360,8 +367,8 @@ export default function JoinLabModal({ isOpen, onClose, initialCode = '' }: Join
             </div>
           )}
 
-          {/* Student Name */}
-          <div style={{ marginBottom: 20 }}>
+          {/* Student Full Name */}
+          <div style={{ marginBottom: 14 }}>
             <label
               style={{
                 display: 'block',
@@ -370,15 +377,15 @@ export default function JoinLabModal({ isOpen, onClose, initialCode = '' }: Join
                 textTransform: 'uppercase',
                 letterSpacing: '0.06em',
                 color: 'var(--text-secondary)',
-                marginBottom: 8,
+                marginBottom: 6,
               }}
             >
-              Your Name / Student ID
+              Student Full Name
             </label>
             <div style={{ position: 'relative' }}>
               <input
                 type="text"
-                placeholder="e.g. Alex Chen (or Student #)"
+                placeholder="e.g. Aarsh Joshi"
                 value={studentName}
                 onChange={(e) => setStudentName(e.target.value)}
                 style={{
@@ -391,6 +398,7 @@ export default function JoinLabModal({ isOpen, onClose, initialCode = '' }: Join
                   color: 'var(--text-primary)',
                   fontSize: 13,
                   outline: 'none',
+                  boxSizing: 'border-box',
                 }}
               />
               <User
@@ -401,6 +409,58 @@ export default function JoinLabModal({ isOpen, onClose, initialCode = '' }: Join
                   top: '50%',
                   transform: 'translateY(-50%)',
                   color: 'var(--text-muted)',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Student PRN Number */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                College PRN
+              </label>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                e.g. 202501040430
+              </span>
+            </div>
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                placeholder="e.g. 202501040430"
+                value={studentPrn}
+                onChange={(e) => setStudentPrn(e.target.value)}
+                style={{
+                  width: '100%',
+                  height: 38,
+                  padding: '0 12px 0 34px',
+                  borderRadius: 4,
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-primary)',
+                  fontFamily: 'var(--font-mono, monospace)',
+                  fontSize: 13,
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <Hash
+                size={14}
+                style={{
+                  position: 'absolute',
+                  left: 11,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--brand-light)',
                 }}
               />
             </div>

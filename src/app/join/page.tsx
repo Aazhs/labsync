@@ -7,6 +7,7 @@ import { getLobbyByCode, joinLobby, LabLobby } from '@/lib/lobbyService';
 import {
   ArrowRight,
   User,
+  Hash,
   AlertCircle,
   CheckCircle2,
   ArrowLeft,
@@ -23,6 +24,7 @@ function JoinContent() {
       : ['', '', '', '', '', '']
   );
   const [studentName, setStudentName] = useState('');
+  const [studentPrn, setStudentPrn] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verifiedLobby, setVerifiedLobby] = useState<LabLobby | null>(null);
@@ -157,7 +159,12 @@ function JoinContent() {
     }
 
     if (!studentName.trim()) {
-      setError('Please enter your full name or student ID.');
+      setError('Please enter your full name.');
+      return;
+    }
+
+    if (!studentPrn.trim()) {
+      setError('Please enter your college PRN (e.g. 202501040430).');
       return;
     }
 
@@ -165,14 +172,14 @@ function JoinContent() {
     setError(null);
 
     try {
-      const res = await joinLobby(code, studentName.trim());
+      const res = await joinLobby(code, studentName.trim(), studentPrn.trim());
       if (!res.success) {
         setError(res.error || 'Failed to join lab.');
         setLoading(false);
         return;
       }
 
-      router.push(`/ide?room=${code}&student=${encodeURIComponent(studentName.trim())}`);
+      router.push(`/ide?room=${code}&student=${encodeURIComponent(studentName.trim())}&prn=${encodeURIComponent(studentPrn.trim())}`);
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'An unexpected error occurred';
       setError(errorMsg);
@@ -341,8 +348,8 @@ function JoinContent() {
             </div>
           )}
 
-          {/* Student Name */}
-          <div style={{ marginBottom: 24 }}>
+          {/* Student Full Name */}
+          <div style={{ marginBottom: 16 }}>
             <label
               style={{
                 display: 'block',
@@ -351,15 +358,15 @@ function JoinContent() {
                 textTransform: 'uppercase',
                 letterSpacing: '0.06em',
                 color: 'var(--text-secondary)',
-                marginBottom: 8,
+                marginBottom: 6,
               }}
             >
-              Your Full Name or Student ID
+              Student Full Name
             </label>
             <div style={{ position: 'relative' }}>
               <input
                 type="text"
-                placeholder="e.g. Maya Lin"
+                placeholder="e.g. Aarsh Joshi"
                 value={studentName}
                 onChange={(e) => setStudentName(e.target.value)}
                 style={{
@@ -372,6 +379,7 @@ function JoinContent() {
                   color: 'var(--text-primary)',
                   fontSize: 13,
                   outline: 'none',
+                  boxSizing: 'border-box',
                 }}
               />
               <User
@@ -382,6 +390,58 @@ function JoinContent() {
                   top: '50%',
                   transform: 'translateY(-50%)',
                   color: 'var(--text-muted)',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Student PRN */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                College PRN
+              </label>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                e.g. 202501040430
+              </span>
+            </div>
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                placeholder="e.g. 202501040430"
+                value={studentPrn}
+                onChange={(e) => setStudentPrn(e.target.value)}
+                style={{
+                  width: '100%',
+                  height: 40,
+                  padding: '0 12px 0 34px',
+                  borderRadius: 4,
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-primary)',
+                  fontFamily: 'var(--font-mono, monospace)',
+                  fontSize: 13,
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <Hash
+                size={14}
+                style={{
+                  position: 'absolute',
+                  left: 11,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--brand-light)',
                 }}
               />
             </div>

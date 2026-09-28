@@ -6,6 +6,7 @@ export interface LabLobby {
   title: string;
   course: string;
   teacher_name: string;
+  teacher_email?: string;
   language: string;
   starter_code?: string;
   broadcast_code?: string;
@@ -22,6 +23,7 @@ export interface LabStudent {
   lobby_id?: string;
   room_code: string;
   student_name: string;
+  prn: string;
   status: 'active' | 'coding' | 'stuck' | 'needs_help' | 'completed' | 'idle';
   error_tier?: 'syntax' | 'logic' | 'conceptual' | 'none';
   error_category?: string;
@@ -34,6 +36,7 @@ export interface CreateLobbyParams {
   title: string;
   course: string;
   teacher_name: string;
+  teacher_email?: string;
   language: string;
   starter_code?: string;
 }
@@ -164,6 +167,7 @@ export async function createLobby(params: CreateLobbyParams): Promise<LabLobby> 
         title: params.title.trim() || 'Untitled Lab Session',
         course: params.course.trim() || 'Computer Science',
         teacher_name: params.teacher_name.trim() || 'Instructor',
+        teacher_email: params.teacher_email || 'teacher@mitaoe.ac.in',
         language: params.language || 'python',
         starter_code: params.starter_code || '',
         broadcast_code: params.starter_code || '',
@@ -194,6 +198,7 @@ export async function createLobby(params: CreateLobbyParams): Promise<LabLobby> 
     title: params.title.trim() || 'Untitled Lab Session',
     course: params.course.trim() || 'Computer Science',
     teacher_name: params.teacher_name.trim() || 'Instructor',
+    teacher_email: params.teacher_email || 'teacher@mitaoe.ac.in',
     language: params.language || 'python',
     starter_code: params.starter_code || '',
     broadcast_code: params.starter_code || '',
@@ -268,23 +273,36 @@ export async function listActiveLobbies(): Promise<LabLobby[]> {
 }
 
 /**
- * Join a lab lobby with student name and 6-digit code.
+ * Join a lab lobby with student name, PRN, and 6-digit code.
  */
-export async function joinLobby(roomCode: string, studentName: string): Promise<{ success: boolean; student?: LabStudent; lobby?: LabLobby; error?: string }> {
+export async function joinLobby(
+  roomCode: string,
+  studentName: string,
+  prn: string
+): Promise<{ success: boolean; student?: LabStudent; lobby?: LabLobby; error?: string }> {
   const cleanCode = roomCode.trim();
   const cleanName = studentName.trim();
+  const cleanPrn = prn.trim();
 
   if (!cleanCode || cleanCode.length !== 6) {
     return { success: false, error: 'Please enter a valid 6-digit room code' };
   }
 
   if (!cleanName) {
-    return { success: false, error: 'Please enter your name' };
+    return { success: false, error: 'Please enter your full name' };
+  }
+
+  if (!cleanPrn) {
+    return { success: false, error: 'Please enter your college PRN (e.g. 202501040430)' };
   }
 
   const lobby = await getLobbyByCode(cleanCode);
   if (!lobby) {
     return { success: false, error: `No active lab session found with code "${cleanCode}". Please verify with your instructor.` };
+  }
+
+  if (lobby.status === 'completed') {
+    return { success: false, error: 'This lab session has already concluded and is closed.' };
   }
 
   const supabase = getSupabase();
@@ -296,6 +314,7 @@ export async function joinLobby(roomCode: string, studentName: string): Promise<
           lobby_id: lobby.id,
           room_code: cleanCode,
           student_name: cleanName,
+          prn: cleanPrn,
           status: 'coding',
           current_file: lobby.language === 'web' ? 'index.html' : 'main.py',
         })
@@ -317,6 +336,7 @@ export async function joinLobby(roomCode: string, studentName: string): Promise<
     lobby_id: lobby.id,
     room_code: cleanCode,
     student_name: cleanName,
+    prn: cleanPrn,
     status: 'coding',
     current_file: lobby.language === 'web' ? 'index.html' : 'main.py',
     joined_at: new Date().toISOString(),
@@ -481,6 +501,62 @@ export async function updateLobbyBroadcast(
 }
 
 /**
+ * Update lobby session status (e.g. 'active', 'paused', 'completed').
+ * Allows teachers to start / stop / pause / resume labs whenever they want.
+ */
+export async function updateLobbyStatus(
+  roomCode: string,
+  status: 'active' | 'paused' | 'completed'
+): Promise<LabLobby | null> {
+  const cleanCode = roomCode.trim();
+  const supabase = getSupabase();
+
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('lab_lobbies')
+        .update({
+          status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('room_code', cleanCode)
+        .select()
+        .single();
+
+      if (!error && data) {
+        const lobbies = getLocalLobbies();
+        const idx = lobbies.findIndex((l) => l.room_code === cleanCode);
+        if (idx !== -1) {
+          lobbies[idx] = { ...lobbies[idx], status, updated_at: new Date().toISOString() };
+          saveLocalLobbies(lobbies);
+        }
+        return data as LabLobby;
+      }
+    } catch (err) {
+      console.warn('Supabase updateLobbyStatus error:', err);
+    }
+  }
+
+  const lobbies = getLocalLobbies();
+  const idx = lobbies.findIndex((l) => l.room_code === cleanCode);
+  if (idx !== -1) {
+    lobbies[idx] = {
+      ...lobbies[idx],
+      status,
+      updated_at: new Date().toISOString(),
+    };
+    saveLocalLobbies(lobbies);
+    broadcastChannel?.postMessage({
+      type: 'STATUS_UPDATED',
+      roomCode: cleanCode,
+      status,
+    });
+    return lobbies[idx];
+  }
+  return null;
+}
+
+/**
  * Realtime subscription to lobby changes and student activity.
  */
 export function subscribeToLobbyUpdates(roomCode: string, onChange: () => void): () => void {
@@ -511,7 +587,8 @@ export function subscribeToLobbyUpdates(roomCode: string, onChange: () => void):
     if (
       event.data?.type === 'STUDENTS_UPDATED' ||
       event.data?.type === 'LOBBIES_UPDATED' ||
-      event.data?.type === 'BROADCAST_UPDATED'
+      event.data?.type === 'BROADCAST_UPDATED' ||
+      event.data?.type === 'STATUS_UPDATED'
     ) {
       onChange();
     }

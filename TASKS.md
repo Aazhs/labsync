@@ -15,6 +15,7 @@
 ---
 
 ## ✅ Completed
+- [x] [P1] [Feature] **Teacher Institutional Auth & Student PRN Credentials:** Faculty login and registration restricted to `@mitaoe.ac.in` domain, student PRN verification before lab join (`202501040430`), multi-lab management, and start/pause/stop lab controls with student execution locks
 - [x] [P1] [Feature] **Lab Lobbies System & Supabase Integration:** Unique 6-digit room code creation, PIN join flow, student attendance, multi-lab room switcher, and Supabase Realtime schema with offline fallback
 - [x] [P1] [Optimization] **Lightweight Performance & Local Code Persistence:** High-performance rendering on Safari/Chrome/Firefox/low-spec PCs, full localStorage session persistence across reloads, and local compiler execution
 - [x] [P2] [Feature] **Vim Mode for Monaco Editor:** Modal editing with normal, insert, and visual modes, status bar indicator with command line (:w), and 1-click toggle

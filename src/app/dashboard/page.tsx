@@ -21,16 +21,29 @@ import {
   Radio,
   Send,
   Sparkles,
+  Play,
+  Pause,
+  Square,
+  LogOut,
+  ShieldCheck,
+  GraduationCap,
 } from 'lucide-react';
 import {
   listActiveLobbies,
   getLobbyStudents,
   subscribeToLobbyUpdates,
   updateLobbyBroadcast,
+  updateLobbyStatus,
   LabLobby,
   LabStudent,
 } from '@/lib/lobbyService';
+import {
+  getTeacherSession,
+  logoutTeacher,
+  TeacherUser,
+} from '@/lib/teacherAuth';
 import CreateLobbyModal from '@/components/CreateLobbyModal';
+import TeacherAuthModal from '@/components/TeacherAuthModal';
 
 const emptySubscribe = () => () => {};
 
@@ -39,6 +52,11 @@ export default function DashboardPage() {
   const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
   const [selectedStudent, setSelectedStudent] = useState<LabStudent | null>(null);
   const [time, setTime] = useState(new Date());
+
+  // Teacher Auth State
+  const [teacher, setTeacher] = useState<TeacherUser | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   // Lab Lobbies State
   const [lobbies, setLobbies] = useState<LabLobby[]>([]);
@@ -55,9 +73,11 @@ export default function DashboardPage() {
   const [isSavingBroadcast, setIsSavingBroadcast] = useState(false);
   const [broadcastSuccessNotice, setBroadcastSuccessNotice] = useState(false);
 
-  // Clock
+  // Clock & Teacher Auth Init
   useEffect(() => {
     const interval = setInterval(() => setTime(new Date()), 1000);
+    const session = getTeacherSession();
+    setTeacher(session);
     return () => clearInterval(interval);
   }, []);
 
@@ -101,6 +121,22 @@ export default function DashboardPage() {
         const match = list.find((l) => l.room_code === prev.room_code);
         return match ?? list[0];
       });
+    }
+  };
+
+  const handleStatusChange = async (newStatus: 'active' | 'paused' | 'completed') => {
+    if (!activeLobby || isUpdatingStatus) return;
+    setIsUpdatingStatus(true);
+    try {
+      await updateLobbyStatus(activeLobby.room_code, newStatus);
+      setActiveLobby((prev) => (prev ? { ...prev, status: newStatus } : null));
+      setLobbies((prev) =>
+        prev.map((l) => (l.room_code === activeLobby.room_code ? { ...l, status: newStatus } : l))
+      );
+    } catch (err) {
+      console.error('Failed to change lab status:', err);
+    } finally {
+      setIsUpdatingStatus(false);
     }
   };
 
@@ -223,22 +259,43 @@ export default function DashboardPage() {
 
           {/* Active Lab Rooms Switcher */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto', maxWidth: 460 }}>
-            {lobbies.map((lobby) => (
-              <button
-                key={lobby.id}
-                onClick={() => setActiveLobby(lobby)}
-                className={`btn ${activeLobby?.id === lobby.id ? 'btn-primary' : 'btn-ghost'}`}
-                style={{
-                  height: 28,
-                  fontSize: 11,
-                  padding: '0 10px',
-                  borderRadius: 4,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <span>{lobby.course}: #{lobby.room_code}</span>
-              </button>
-            ))}
+            {lobbies.map((lobby) => {
+              const isSelected = activeLobby?.id === lobby.id;
+              const isLobbyPaused = lobby.status === 'paused';
+              const isLobbyEnded = lobby.status === 'completed';
+              return (
+                <button
+                  key={lobby.id}
+                  onClick={() => setActiveLobby(lobby)}
+                  className={`btn ${isSelected ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{
+                    height: 28,
+                    fontSize: 11,
+                    padding: '0 10px',
+                    borderRadius: 4,
+                    whiteSpace: 'nowrap',
+                    gap: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                  title={`Status: ${lobby.status || 'active'}`}
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: isLobbyPaused
+                        ? 'var(--accent-warning)'
+                        : isLobbyEnded
+                        ? 'var(--text-muted)'
+                        : 'var(--accent-success)',
+                    }}
+                  />
+                  <span>{lobby.course}: #{lobby.room_code}</span>
+                </button>
+              );
+            })}
             <button
               className="btn btn-secondary"
               onClick={() => setShowCreateModal(true)}
@@ -250,6 +307,7 @@ export default function DashboardPage() {
                 borderRadius: 4,
                 whiteSpace: 'nowrap',
               }}
+              title="Create a new lab room"
             >
               <Plus size={12} />
               New Lab
@@ -258,6 +316,47 @@ export default function DashboardPage() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {teacher ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 10px',
+                borderRadius: 4,
+                background: 'rgba(212, 148, 58, 0.1)',
+                border: '1px solid rgba(212, 148, 58, 0.28)',
+                fontSize: 12,
+              }}>
+                <GraduationCap size={14} style={{ color: 'var(--brand-light)' }} />
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{teacher.name}</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>({teacher.email})</span>
+              </div>
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  logoutTeacher();
+                  setTeacher(null);
+                  router.push('/login');
+                }}
+                style={{ height: 28, fontSize: 11, padding: '0 8px', gap: 4, borderRadius: 4 }}
+                title="Sign out of instructor account"
+              >
+                <LogOut size={12} />
+                Sign Out
+              </button>
+            </div>
+          ) : (
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowAuthModal(true)}
+              style={{ height: 28, fontSize: 11, padding: '0 10px', gap: 5, borderRadius: 4 }}
+            >
+              <ShieldCheck size={12} />
+              Faculty Sign In (@mitaoe.ac.in)
+            </button>
+          )}
+
           <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
             {time.toLocaleTimeString()}
           </span>
@@ -345,7 +444,121 @@ export default function DashboardPage() {
             </button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* Lab Status Badge */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '3px 8px',
+                borderRadius: 4,
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: '0.06em',
+                fontFamily: 'var(--font-mono, monospace)',
+                background:
+                  activeLobby.status === 'paused'
+                    ? 'rgba(217, 119, 6, 0.15)'
+                    : activeLobby.status === 'completed'
+                    ? 'rgba(113, 113, 122, 0.15)'
+                    : 'rgba(34, 197, 94, 0.15)',
+                color:
+                  activeLobby.status === 'paused'
+                    ? 'var(--accent-warning)'
+                    : activeLobby.status === 'completed'
+                    ? 'var(--text-muted)'
+                    : 'var(--accent-success)',
+                border: `1px solid ${
+                  activeLobby.status === 'paused'
+                    ? 'rgba(217, 119, 6, 0.35)'
+                    : activeLobby.status === 'completed'
+                    ? 'rgba(113, 113, 122, 0.35)'
+                    : 'rgba(34, 197, 94, 0.35)'
+                }`,
+              }}
+            >
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: 'currentColor',
+                }}
+              />
+              {activeLobby.status === 'paused'
+                ? 'PAUSED'
+                : activeLobby.status === 'completed'
+                ? 'STOPPED'
+                : 'ACTIVE'}
+            </div>
+
+            {/* Start / Pause / Stop Controls */}
+            {activeLobby.status === 'paused' ? (
+              <button
+                type="button"
+                onClick={() => handleStatusChange('active')}
+                disabled={isUpdatingStatus}
+                className="btn btn-primary"
+                style={{ height: 26, fontSize: 11, padding: '0 9px', gap: 4, borderRadius: 3 }}
+                title="Resume this lab: allows students to run code again"
+              >
+                <Play size={11} fill="currentColor" />
+                Resume Lab
+              </button>
+            ) : activeLobby.status === 'completed' ? (
+              <button
+                type="button"
+                onClick={() => handleStatusChange('active')}
+                disabled={isUpdatingStatus}
+                className="btn btn-primary"
+                style={{ height: 26, fontSize: 11, padding: '0 9px', gap: 4, borderRadius: 3 }}
+                title="Restart lab session for students"
+              >
+                <Play size={11} fill="currentColor" />
+                Start Lab
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleStatusChange('paused')}
+                disabled={isUpdatingStatus}
+                className="btn btn-secondary"
+                style={{ height: 26, fontSize: 11, padding: '0 9px', gap: 4, borderRadius: 3 }}
+                title="Pause lab: prevents student code execution while you lecture"
+              >
+                <Pause size={11} fill="currentColor" />
+                Pause Lab
+              </button>
+            )}
+
+            {activeLobby.status !== 'completed' && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`Stop Lab #${activeLobby.room_code}? This will end the active session.`)) {
+                    handleStatusChange('completed');
+                  }
+                }}
+                disabled={isUpdatingStatus}
+                className="btn btn-ghost"
+                style={{
+                  height: 26,
+                  fontSize: 11,
+                  padding: '0 8px',
+                  gap: 4,
+                  borderRadius: 3,
+                  color: 'var(--accent-danger)',
+                }}
+                title="Stop / Complete lab session"
+              >
+                <Square size={11} fill="currentColor" />
+                Stop Lab
+              </button>
+            )}
+
+            <div style={{ width: 1, height: 16, background: 'var(--border-default)', margin: '0 2px' }} />
+
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: realStudents.length > 0 ? 'var(--accent-success)' : 'var(--text-muted)', fontWeight: 600, fontSize: 12 }}>
               <Users size={13} />
               {realStudents.length} {realStudents.length === 1 ? 'Student' : 'Students'} Joined
@@ -354,9 +567,10 @@ export default function DashboardPage() {
               className="btn btn-primary"
               onClick={() => router.push(`/ide?room=${activeLobby.room_code}&role=teacher`)}
               style={{ height: 28, fontSize: 11, padding: '0 10px', gap: 5, borderRadius: 4 }}
+              title="Join this lab room as instructor in the full IDE"
             >
               <Code2 size={13} />
-              Open Teacher IDE
+              Join Lab in IDE
               <ExternalLink size={11} />
             </button>
           </div>
@@ -673,9 +887,20 @@ export default function DashboardPage() {
                           }}>
                             {student.student_name.slice(0, 1).toUpperCase()}
                           </div>
-                          <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>
-                            {student.student_name}
-                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>
+                              {student.student_name}
+                            </span>
+                            <span style={{
+                              fontSize: 10,
+                              fontFamily: 'var(--font-mono, monospace)',
+                              color: 'var(--brand-light)',
+                              fontWeight: 600,
+                              letterSpacing: '0.04em',
+                            }}>
+                              PRN: {student.prn || 'N/A'}
+                            </span>
+                          </div>
                         </div>
                         <span
                           style={{
@@ -738,8 +963,22 @@ export default function DashboardPage() {
               borderTop: '1px solid var(--border)',
               background: 'var(--bg-tertiary)',
             }}>
-              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4, color: 'var(--text-primary)' }}>
-                {selectedStudent.student_name}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {selectedStudent.student_name}
+                </span>
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  fontFamily: 'var(--font-mono, monospace)',
+                  color: 'var(--brand-light)',
+                  background: 'rgba(212, 148, 58, 0.12)',
+                  border: '1px solid rgba(212, 148, 58, 0.3)',
+                  padding: '2px 6px',
+                  borderRadius: 3,
+                }}>
+                  PRN: {selectedStudent.prn || 'N/A'}
+                </span>
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
                 Status: {selectedStudent.status} • {selectedStudent.error_category || 'No active syntax errors reported'}
@@ -765,6 +1004,16 @@ export default function DashboardPage() {
         onLobbyCreated={(newLobby) => {
           setActiveLobby(newLobby);
           refreshLobbies();
+        }}
+      />
+
+      {/* Teacher Authentication Modal */}
+      <TeacherAuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={(t) => {
+          setTeacher(t);
+          setShowAuthModal(false);
         }}
       />
     </div>
