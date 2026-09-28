@@ -1,14 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, Suspense } from 'react';
 import dynamic from 'next/dynamic';
-import { useIDEStore } from '@/lib/store';
+import { useSearchParams } from 'next/navigation';
+import { useIDEStore, LANGUAGES } from '@/lib/store';
+import { getLobbyByCode } from '@/lib/lobbyService';
 import IDEHeader from '@/components/IDEHeader';
 import IDESidebar from '@/components/IDESidebar';
+import FileExplorer from '@/components/FileExplorer';
+import LivePreview from '@/components/LivePreview';
 import StatusBar from '@/components/StatusBar';
 import OutputPanel from '@/components/OutputPanel';
 import AIHintPanel from '@/components/AIHintPanel';
-import { GripVertical } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
+import { soundManager } from '@/lib/sound';
 
 // Dynamic import for Monaco (no SSR)
 const CodeEditor = dynamic(() => import('@/components/CodeEditor'), {
@@ -30,7 +35,7 @@ const CodeEditor = dynamic(() => import('@/components/CodeEditor'), {
   ),
 });
 
-export default function IDEPage() {
+function IDEPageContent() {
   const {
     code,
     language,
@@ -38,48 +43,157 @@ export default function IDEPage() {
     showOutput,
     showHintPanel,
     showReferencePane,
+    showExplorer,
+    showLivePreview,
+    toggleExplorer,
+    toggleLivePreview,
+    files,
+    activeFileId,
+    openFileIds,
     sessionMode,
     referenceCode,
+    setActiveFile,
+    closeFileTab,
+    createFile,
     setIsRunning,
     addOutput,
     clearOutput,
     setLastResult,
+    setStdin,
+    setIsWaitingForInput,
     setActiveOutputTab,
   } = useIDEStore();
 
+  const searchParams = useSearchParams();
+  const roomCode = searchParams.get('room');
+  const studentName = searchParams.get('student');
+  const role = searchParams.get('role');
+
+  // If joined via a specific lobby, sync lobby settings
+  useEffect(() => {
+    if (!roomCode) return;
+    const syncLobby = async () => {
+      const lobby = await getLobbyByCode(roomCode);
+      if (lobby && lobby.language) {
+        const langObj = LANGUAGES.find((l) => l.name === lobby.language);
+        if (langObj && langObj.id !== useIDEStore.getState().language.id) {
+          useIDEStore.getState().setLanguage(langObj);
+        }
+      }
+    };
+    syncLobby();
+  }, [roomCode]);
+
   // Resizable panel sizes
   const [editorHeight, setEditorHeight] = useState(65); // percentage
+  const [explorerWidth, setExplorerWidth] = useState(220); // pixels
+  const [previewWidth, setPreviewWidth] = useState(460); // pixels
   const [hintWidth, setHintWidth] = useState(320); // pixels
   const [isResizingV, setIsResizingV] = useState(false);
   const [isResizingH, setIsResizingH] = useState(false);
+  const [isResizingExplorer, setIsResizingExplorer] = useState(false);
+  const [isResizingPreview, setIsResizingPreview] = useState(false);
 
-  const runCode = useCallback(async () => {
+  const runCode = useCallback(async (customStdin?: unknown) => {
     if (isRunning) return;
 
+    // Guard against React SyntheticEvent or other objects passed by click handlers
+    const stdinStr = typeof customStdin === 'string' ? customStdin : undefined;
+    const isInteractiveInput = stdinStr !== undefined;
+    const activeStdin = isInteractiveInput ? stdinStr : '';
+
     setIsRunning(true);
-    clearOutput();
-    setLastResult(null);
-    setActiveOutputTab('output');
+
+    // If Web Dev mode: refresh live preview and report clean status
+    if (language.name === 'web') {
+      if (!useIDEStore.getState().showLivePreview) {
+        useIDEStore.getState().setShowLivePreview(true);
+      }
+      setActiveOutputTab('terminal');
+      if (!useIDEStore.getState().showOutput) {
+        useIDEStore.getState().toggleOutput();
+      }
+      addOutput({
+        type: 'system',
+        content: '$ labsync-web build && serve',
+        timestamp: Date.now(),
+      });
+      addOutput({
+        type: 'success',
+        content: '✓ Rendered index.html with active styles and scripts',
+        timestamp: Date.now(),
+      });
+      if (useIDEStore.getState().soundEnabled) {
+        soundManager.playSuccess();
+      }
+      setIsRunning(false);
+      return;
+    }
+
+    setActiveOutputTab('terminal');
 
     // Show output panel if hidden
     if (!useIDEStore.getState().showOutput) {
       useIDEStore.getState().toggleOutput();
     }
 
-    addOutput({
-      type: 'system',
-      content: `▶ Running ${language.label}...`,
-      timestamp: Date.now(),
-    });
+    if (!isInteractiveInput) {
+      clearOutput();
+      setLastResult(null);
+      setStdin('');
+      setIsWaitingForInput(false);
+    }
+
+    // If current file is not runnable (e.g. .md or .txt), run the entrypoint file
+    const activeFile = files.find((f) => f.id === activeFileId);
+    const entryFile = files.find((f) => f.isEntrypoint);
+    const targetCode =
+      activeFile && (activeFile.name.endsWith('.md') || activeFile.name.endsWith('.txt')) && entryFile
+        ? entryFile.content
+        : code;
+
+    const targetFilename =
+      activeFile?.name ||
+      (language.name === 'python'
+        ? 'main.py'
+        : language.name === 'javascript'
+        ? 'main.js'
+        : language.name === 'java'
+        ? 'Main.java'
+        : language.name === 'cpp'
+        ? 'main.cpp'
+        : 'main.c');
+
+    const cmdStr =
+      language.name === 'python'
+        ? `python3 ${targetFilename}`
+        : language.name === 'javascript'
+        ? `node ${targetFilename}`
+        : language.name === 'java'
+        ? `javac ${targetFilename} && java Main`
+        : language.name === 'cpp'
+        ? `g++ -O2 ${targetFilename} && ./a.out`
+        : `gcc -O2 ${targetFilename} && ./a.out`;
+
+    if (!isInteractiveInput) {
+      addOutput({
+        type: 'system',
+        content: `$ ${cmdStr}`,
+        timestamp: Date.now(),
+      });
+      if (useIDEStore.getState().soundEnabled) {
+        soundManager.playExecute();
+      }
+    }
 
     try {
       const res = await fetch('/api/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          code,
+          code: targetCode,
           languageId: language.id,
-          stdin: '',
+          stdin: activeStdin,
         }),
       });
 
@@ -91,6 +205,10 @@ export default function IDEPage() {
           content: `✗ Error: ${result.error}`,
           timestamp: Date.now(),
         });
+        setIsWaitingForInput(false);
+        if (useIDEStore.getState().soundEnabled) {
+          soundManager.playError();
+        }
         return;
       }
 
@@ -103,39 +221,83 @@ export default function IDEPage() {
         });
       }
 
+      // Check if error is missing standard input (EOFError, NoSuchElementException, or timeout waiting for stdin)
+      const isMissingInput =
+        result.stderr?.includes('EOFError') ||
+        result.stderr?.includes('NoSuchElementException') ||
+        (result.status?.id === 5 &&
+          (targetCode.includes('input(') ||
+            targetCode.includes('cin') ||
+            targetCode.includes('scanf') ||
+            targetCode.includes('Scanner') ||
+            targetCode.includes('readLine')));
+
       // Show stdout
       if (result.stdout) {
-        addOutput({
-          type: 'stdout',
-          content: result.stdout,
-          timestamp: Date.now(),
-        });
+        let displayStdout = result.stdout;
+        if (isInteractiveInput) {
+          const prevOutputs = useIDEStore
+            .getState()
+            .output.filter((o) => o.type === 'stdout')
+            .map((o) => o.content)
+            .join('');
+          if (prevOutputs && displayStdout.startsWith(prevOutputs.trimEnd())) {
+            displayStdout = displayStdout.substring(prevOutputs.trimEnd().length);
+          }
+        }
+        if (displayStdout.trim()) {
+          addOutput({
+            type: 'stdout',
+            content: displayStdout.trimEnd(),
+            timestamp: Date.now(),
+          });
+        }
       }
 
-      // Show stderr
-      if (result.stderr) {
+      if (isMissingInput) {
+        setIsWaitingForInput(true);
+        if (!result.stdout || !result.stdout.trim()) {
+          addOutput({
+            type: 'system',
+            content: 'Program is waiting for input (stdin):',
+            timestamp: Date.now(),
+          });
+        }
+      } else {
+        setIsWaitingForInput(false);
+
+        // Show stderr if not missing input
+        if (result.stderr) {
+          addOutput({
+            type: 'stderr',
+            content: result.stderr,
+            timestamp: Date.now(),
+          });
+        }
+
+        // Show status
+        const isSuccess = result.status?.id === 3;
         addOutput({
-          type: 'stderr',
-          content: result.stderr,
+          type: isSuccess ? 'success' : 'error',
+          content: isSuccess
+            ? `✓ Process exited with code 0${result.time ? ` (${result.time}s)` : ''}`
+            : `✗ ${result.status?.description || 'Execution failed'}`,
           timestamp: Date.now(),
         });
-      }
 
-      // Show status
-      const isSuccess = result.status?.id === 3;
-      addOutput({
-        type: isSuccess ? 'success' : 'error',
-        content: isSuccess
-          ? `✓ Process exited with code 0${result.time ? ` (${result.time}s)` : ''}`
-          : `✗ ${result.status?.description || 'Execution failed'}`,
-        timestamp: Date.now(),
-      });
+        if (useIDEStore.getState().soundEnabled) {
+          if (isSuccess) {
+            soundManager.playSuccess();
+          } else {
+            soundManager.playError();
+          }
+        }
 
-      setLastResult(result);
+        setLastResult(result);
 
-      // Auto-switch to problems tab on error
-      if (!isSuccess && result.classification?.tier !== 'none') {
-        setActiveOutputTab('problems');
+        if (!isSuccess && result.classification?.tier !== 'none') {
+          setActiveOutputTab('problems');
+        }
       }
     } catch (err) {
       addOutput({
@@ -143,10 +305,27 @@ export default function IDEPage() {
         content: `✗ Network error: ${err instanceof Error ? err.message : 'Unknown error'}`,
         timestamp: Date.now(),
       });
+      setIsWaitingForInput(false);
+      if (useIDEStore.getState().soundEnabled) {
+        soundManager.playError();
+      }
     } finally {
       setIsRunning(false);
     }
-  }, [code, language, isRunning, setIsRunning, clearOutput, addOutput, setLastResult, setActiveOutputTab]);
+  }, [
+    code,
+    language,
+    isRunning,
+    files,
+    activeFileId,
+    setIsRunning,
+    setStdin,
+    setIsWaitingForInput,
+    clearOutput,
+    addOutput,
+    setLastResult,
+    setActiveOutputTab,
+  ]);
 
   const stopCode = useCallback(() => {
     setIsRunning(false);
@@ -157,17 +336,120 @@ export default function IDEPage() {
     });
   }, [setIsRunning, addOutput]);
 
-  // Keyboard shortcut: Ctrl+Enter to run
+  // Listen for custom IDE events from Monaco editor and components
+  useEffect(() => {
+    const handleRunEvent = () => {
+      runCode();
+    };
+    const handleSaveEvent = () => {
+      addOutput({
+        type: 'system',
+        content: '✓ File saved',
+        timestamp: Date.now(),
+      });
+    };
+
+    window.addEventListener('labsync:run', handleRunEvent);
+    window.addEventListener('labsync:save', handleSaveEvent);
+    return () => {
+      window.removeEventListener('labsync:run', handleRunEvent);
+      window.removeEventListener('labsync:save', handleSaveEvent);
+    };
+  }, [runCode, addOutput]);
+
+  // Global Keyboard shortcuts: Cmd+Enter (run), Cmd+B (explorer), Cmd+J (terminal), Cmd+M (sound)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      const isCmdOrCtrl = e.ctrlKey || e.metaKey;
+
+      // Cmd+Enter / Ctrl+Enter: Run Code
+      if (isCmdOrCtrl && e.key === 'Enter') {
         e.preventDefault();
         runCode();
+        return;
+      }
+
+      // Cmd+B / Ctrl+B: Toggle File Explorer
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        toggleExplorer();
+        return;
+      }
+
+      // Cmd+J / Ctrl+J / Cmd+`: Toggle Terminal Output Panel
+      if (isCmdOrCtrl && (e.key.toLowerCase() === 'j' || e.key === '`')) {
+        e.preventDefault();
+        useIDEStore.getState().toggleOutput();
+        return;
+      }
+
+      // Cmd+M / Ctrl+M: Toggle Audio Feedback
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        useIDEStore.getState().toggleSound();
+        return;
+      }
+
+      // Cmd+S / Ctrl+S: Prevent browser HTML save dialog
+      if (isCmdOrCtrl && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        addOutput({
+          type: 'system',
+          content: '✓ File saved',
+          timestamp: Date.now(),
+        });
+        return;
       }
     };
+
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [runCode]);
+  }, [runCode, toggleExplorer, addOutput]);
+
+  // Horizontal resize (File Explorer)
+  useEffect(() => {
+    if (!isResizingExplorer) return;
+
+    const handleMove = (e: MouseEvent) => {
+      const main = document.getElementById('ide-main');
+      if (!main) return;
+      const rect = main.getBoundingClientRect();
+      const newWidth = e.clientX - rect.left;
+      setExplorerWidth(Math.max(160, Math.min(420, newWidth)));
+    };
+
+    const handleUp = () => setIsResizingExplorer(false);
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+    };
+  }, [isResizingExplorer]);
+
+  // Horizontal resize (Live Preview)
+  useEffect(() => {
+    if (!isResizingPreview) return;
+
+    const handleMove = (e: MouseEvent) => {
+      const main = document.getElementById('ide-main');
+      if (!main) return;
+      const rect = main.getBoundingClientRect();
+      const rightEdge = showHintPanel ? rect.right - hintWidth : rect.right;
+      const newWidth = rightEdge - e.clientX;
+      setPreviewWidth(Math.max(260, Math.min(850, newWidth)));
+    };
+
+    const handleUp = () => setIsResizingPreview(false);
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+    };
+  }, [isResizingPreview, showHintPanel, hintWidth]);
 
   // Vertical resize (editor/output split)
   useEffect(() => {
@@ -197,7 +479,7 @@ export default function IDEPage() {
 
     const handleMove = (e: MouseEvent) => {
       const newWidth = window.innerWidth - e.clientX;
-      setHintWidth(Math.max(240, Math.min(500, newWidth)));
+      setHintWidth(Math.max(240, Math.min(550, newWidth)));
     };
 
     const handleUp = () => setIsResizingH(false);
@@ -210,134 +492,279 @@ export default function IDEPage() {
     };
   }, [isResizingH]);
 
+  const handleCreateNewTab = () => {
+    const ext =
+      language.name === 'python'
+        ? '.py'
+        : language.name === 'javascript'
+        ? '.js'
+        : language.name === 'java'
+        ? '.java'
+        : language.name === 'cpp'
+        ? '.cpp'
+        : language.name === 'web'
+        ? '.html'
+        : '.c';
+    createFile(`file${files.length + 1}${ext}`);
+  };
+
   return (
     <div className="ide-container">
       {/* Header */}
-      <IDEHeader onRun={runCode} onStop={stopCode} />
+      <IDEHeader
+        onRun={() => runCode()}
+        onStop={stopCode}
+        roomCode={roomCode}
+        studentName={studentName}
+        role={role}
+      />
 
-      {/* Sidebar */}
+      {/* Activity Sidebar */}
       <IDESidebar />
 
-      {/* Main Content */}
+      {/* Main Workspace */}
       <div
         id="ide-main"
         style={{
           display: 'flex',
-          flexDirection: 'column',
           overflow: 'hidden',
           position: 'relative',
+          width: '100%',
+          height: '100%',
         }}
       >
-        {/* Follow Mode Banner */}
-        {sessionMode === 'follow' && (
-          <div className="mode-banner mode-follow">
-            📡 Follow Mode — watching professor&apos;s live code
-          </div>
+        {/* Full-screen mouse capture overlay during dragging */}
+        {(isResizingExplorer || isResizingPreview || isResizingV || isResizingH) && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 9999,
+              cursor: isResizingV ? 'row-resize' : 'col-resize',
+              userSelect: 'none',
+            }}
+          />
         )}
 
-        {/* Main Editor Area */}
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          {/* Editor + Output Column */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            {/* Editor Row (may have reference pane) */}
-            <div style={{
+        {/* File Explorer (Left side) */}
+        {showExplorer && (
+          <>
+            <div
+              style={{
+                width: explorerWidth,
+                flexShrink: 0,
+                overflow: 'hidden',
+                display: 'flex',
+                height: '100%',
+              }}
+            >
+              <FileExplorer />
+            </div>
+            <div
+              className={`resize-divider-col ${isResizingExplorer ? 'dragging' : ''}`}
+              onMouseDown={() => setIsResizingExplorer(true)}
+            />
+          </>
+        )}
+
+        {/* Center: Editor (Top) + Output (Bottom) */}
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            minWidth: 260,
+            overflow: 'hidden',
+            height: '100%',
+          }}
+        >
+          {/* Follow Mode Banner */}
+          {sessionMode === 'follow' && (
+            <div className="mode-banner mode-follow">
+              📡 Follow Mode — watching professor&apos;s live code
+            </div>
+          )}
+
+          {/* Editor Area (Top) */}
+          <div
+            style={{
               flex: showOutput ? `0 0 ${editorHeight}%` : 1,
               display: 'flex',
               overflow: 'hidden',
-            }}>
-              {/* Reference Pane (Follow Mode) */}
-              {showReferencePane && (
-                <>
+              minHeight: 100,
+            }}
+          >
+            {/* Reference Pane (Follow Mode) */}
+            {showReferencePane && (
+              <>
+                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <div className="panel-header" style={{ height: 36, minHeight: 36 }}>
+                    <span>📖 Professor&apos;s Code (Read-Only)</span>
+                  </div>
                   <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <div className="panel" style={{ height: '100%' }}>
-                      <div className="panel-header">
-                        <span>📖 Professor&apos;s Code (Read-Only)</span>
-                      </div>
-                      <div className="panel-body">
-                        <CodeEditor
-                          readOnly={true}
-                          value={referenceCode || '// Professor\'s code will appear here\n// during Follow Mode sessions'}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div
-                    className="resize-handle-h"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <GripVertical size={10} style={{ color: 'var(--text-tertiary)' }} />
-                  </div>
-                </>
-              )}
-
-              {/* Main Editor */}
-              <div style={{ flex: 1, overflow: 'hidden' }}>
-                <div className="panel" style={{ height: '100%', borderRadius: 0 }}>
-                  <div className="tab-bar">
-                    <div className="tab active">
-                      <span style={{ fontSize: 11 }}>●</span>
-                      main.{language.name === 'python' ? 'py' : language.name === 'javascript' ? 'js' : language.name === 'java' ? 'java' : language.name === 'cpp' ? 'cpp' : 'c'}
-                    </div>
-                  </div>
-                  <div className="panel-body">
-                    <CodeEditor />
+                    <CodeEditor
+                      readOnly={true}
+                      value={referenceCode || '// Professor\'s code will appear here\n// during Follow Mode sessions'}
+                    />
                   </div>
                 </div>
+                <div className="resize-divider-col" />
+              </>
+            )}
+
+            {/* Main Code Editor */}
+            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              <div className="tab-bar">
+                {openFileIds.map((id) => {
+                  const file = files.find((f) => f.id === id);
+                  if (!file) return null;
+                  const isActive = id === activeFileId;
+
+                  const getDotColor = (name: string) => {
+                    if (name.endsWith('.html') || name.endsWith('.htm')) return '#e04a3b';
+                    if (name.endsWith('.css')) return '#5b8db8';
+                    if (name.endsWith('.py')) return '#5b8db8';
+                    if (name.endsWith('.js') || name.endsWith('.ts')) return '#e8a838';
+                    if (name.endsWith('.cpp') || name.endsWith('.c') || name.endsWith('.h')) return '#3d8c6f';
+                    if (name.endsWith('.java')) return '#c0392b';
+                    return 'var(--text-muted)';
+                  };
+
+                  return (
+                    <div
+                      key={id}
+                      className={`tab ${isActive ? 'active' : ''}`}
+                      onClick={() => setActiveFile(id)}
+                    >
+                      <span style={{ fontSize: 9, color: getDotColor(file.name) }}>●</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                        {file.name}
+                      </span>
+                      {openFileIds.length > 1 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            closeFileTab(id);
+                          }}
+                          className="tab-close-btn"
+                          title="Close tab"
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <button
+                  onClick={handleCreateNewTab}
+                  className="btn-icon"
+                  title="New file tab"
+                  style={{ marginLeft: 4, width: 24, height: 24, borderRadius: 3 }}
+                >
+                  <Plus size={13} />
+                </button>
+              </div>
+
+              <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+                <CodeEditor />
               </div>
             </div>
-
-            {/* Resize Handle (vertical) */}
-            {showOutput && (
-              <div
-                className="resize-handle-v"
-                onMouseDown={() => setIsResizingV(true)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              />
-            )}
-
-            {/* Output Panel */}
-            {showOutput && (
-              <div style={{ flex: `0 0 ${100 - editorHeight}%`, overflow: 'hidden' }}>
-                <OutputPanel />
-              </div>
-            )}
           </div>
 
-          {/* AI Hint Panel (right side) */}
-          {showHintPanel && (
-            <>
-              <div
-                className="resize-handle-h"
-                onMouseDown={() => setIsResizingH(true)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <GripVertical size={10} style={{ color: 'var(--text-tertiary)' }} />
-              </div>
-              <div
-                style={{ width: hintWidth, flexShrink: 0, overflow: 'hidden' }}
-                className="animate-slide-in"
-              >
-                <AIHintPanel />
-              </div>
-            </>
+          {/* Vertical divider between Editor and Output */}
+          {showOutput && (
+            <div
+              className={`resize-divider-row ${isResizingV ? 'dragging' : ''}`}
+              onMouseDown={() => setIsResizingV(true)}
+            />
+          )}
+
+          {/* Output Panel (Bottom) */}
+          {showOutput && (
+            <div
+              style={{
+                flex: `0 0 ${100 - editorHeight}%`,
+                minHeight: 80,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              <OutputPanel onRun={(customStdin?: string) => runCode(customStdin)} />
+            </div>
           )}
         </div>
 
-        {/* Status Bar */}
-        <StatusBar />
+        {/* Live Preview Pane (Right side, ONLY when toggled!) */}
+        {showLivePreview && (
+          <>
+            <div
+              className={`resize-divider-col ${isResizingPreview ? 'dragging' : ''}`}
+              onMouseDown={() => setIsResizingPreview(true)}
+            />
+            <div
+              style={{
+                width: previewWidth,
+                flexShrink: 0,
+                overflow: 'hidden',
+                display: 'flex',
+                height: '100%',
+              }}
+            >
+              <LivePreview onClose={toggleLivePreview} />
+            </div>
+          </>
+        )}
+
+        {/* AI Hint Panel (Rightmost) */}
+        {showHintPanel && (
+          <>
+            <div
+              className={`resize-divider-col ${isResizingH ? 'dragging' : ''}`}
+              onMouseDown={() => setIsResizingH(true)}
+            />
+            <div
+              style={{
+                width: hintWidth,
+                flexShrink: 0,
+                overflow: 'hidden',
+                display: 'flex',
+                height: '100%',
+              }}
+            >
+              <AIHintPanel />
+            </div>
+          </>
+        )}
       </div>
+
+      {/* Status Bar (spans full width at bottom) */}
+      <StatusBar />
     </div>
+  );
+}
+
+export default function IDEPage() {
+  return (
+    <Suspense
+      fallback={
+        <div style={{
+          width: '100vw',
+          height: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--bg-primary)',
+          color: 'var(--text-tertiary)',
+          fontSize: 13,
+        }}>
+          <div className="loading-spinner" style={{ marginRight: 8 }} />
+          Loading workspace...
+        </div>
+      }
+    >
+      <IDEPageContent />
+    </Suspense>
   );
 }

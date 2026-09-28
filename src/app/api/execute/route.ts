@@ -17,33 +17,38 @@ async function executeLocal(code: string, languageId: number, stdin: string): Pr
   time: string | null;
   memory: number | null;
 }> {
-  const langMap: Record<number, { cmd: string; ext: string; compile?: string }> = {
-    71: { cmd: 'python3', ext: 'py' },
-    63: { cmd: 'node', ext: 'js' },
-    50: { cmd: 'gcc', ext: 'c', compile: 'gcc -o /tmp/sc_out /tmp/sc_code.c && /tmp/sc_out' },
-    54: { cmd: 'g++', ext: 'cpp', compile: 'g++ -o /tmp/sc_out /tmp/sc_code.cpp && /tmp/sc_out' },
+  const { execSync } = await import('child_process');
+  const { writeFileSync, mkdirSync, rmSync } = await import('fs');
+
+  const runId = Math.random().toString(36).substring(2, 9);
+  const tmpDir = `/tmp/labsync_${runId}`;
+  mkdirSync(tmpDir, { recursive: true });
+
+  const langMap: Record<number, { filename: string; cmd: string }> = {
+    71: { filename: 'main.py', cmd: `python3 ${tmpDir}/main.py` },
+    63: { filename: 'main.js', cmd: `node ${tmpDir}/main.js` },
+    50: { filename: 'main.c', cmd: `gcc -o ${tmpDir}/a.out ${tmpDir}/main.c && ${tmpDir}/a.out` },
+    54: { filename: 'main.cpp', cmd: `g++ -o ${tmpDir}/a.out ${tmpDir}/main.cpp && ${tmpDir}/a.out` },
+    62: { filename: 'Main.java', cmd: `javac ${tmpDir}/Main.java && java -cp ${tmpDir} Main` },
   };
 
   const lang = langMap[languageId];
 
   if (!lang) {
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
     throw new Error(`Language ID ${languageId} not supported in local mode`);
   }
 
-  const { execSync } = await import('child_process');
-  const { writeFileSync } = await import('fs');
+  const filePath = `${tmpDir}/${lang.filename}`;
+  writeFileSync(filePath, code);
 
-  const tmpFile = `/tmp/sc_code.${lang.ext}`;
-  writeFileSync(tmpFile, code);
-
-  const command = lang.compile || `${lang.cmd} ${tmpFile}`;
   const startTime = Date.now();
 
   try {
-    const result = execSync(command, {
+    const result = execSync(lang.cmd, {
       timeout: 10000,
       encoding: 'utf-8',
-      input: stdin || undefined,
+      input: stdin !== undefined ? stdin : '',
       maxBuffer: 1024 * 1024,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -64,7 +69,9 @@ async function executeLocal(code: string, languageId: number, stdin: string): Pr
 
     return {
       stdout: execError.stdout || null,
-      stderr: execError.stderr || execError.message || 'Execution failed',
+      stderr: isTimeout
+        ? 'Time Limit Exceeded: The program took more than 10 seconds. If your program reads user input (input(), cin, scanf()), make sure to provide standard input in the Stdin tab or terminal prompt.'
+        : execError.stderr || execError.message || 'Execution failed',
       compile_output: null,
       status: {
         id: isTimeout ? 5 : 11,
@@ -73,6 +80,8 @@ async function executeLocal(code: string, languageId: number, stdin: string): Pr
       time: null,
       memory: null,
     };
+  } finally {
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }
 }
 
@@ -180,7 +189,7 @@ function executeJavaScriptSandboxed(code: string, stdin: string): {
 }
 
 // ─── Python mock (simulates basic Python on Vercel without interpreter) ───
-function executePythonMock(code: string, stdin: string): {
+function executePythonMock(code: string): {
   stdout: string | null;
   stderr: string | null;
   compile_output: string | null;
@@ -253,16 +262,38 @@ function executePythonMock(code: string, stdin: string): {
   };
 }
 
+/**
+ * Automatically handle entrypoint wrapping for student code.
+ * If Python code defines `def main():` and doesn't explicitly invoke it or have an entrypoint guard,
+ * automatically appends `if __name__ == "__main__": main()` behind the scenes at execution time.
+ */
+function prepareExecutableCode(code: string, languageId: number): string {
+  // Python 3 (id: 71)
+  if (languageId === 71) {
+    const hasMainDef = /^\s*(def|async\s+def)\s+main\s*\(/m.test(code);
+    const hasEntrypoint =
+      /__name__\s*==\s*['"]__main__['"]/.test(code) ||
+      /^\s*main\s*\(/m.test(code);
+
+    if (hasMainDef && !hasEntrypoint) {
+      return `${code}\n\nif __name__ == "__main__":\n    main()\n`;
+    }
+  }
+  return code;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { code, languageId, stdin = '' } = await request.json();
+    const { code: rawCode, languageId, stdin = '' } = await request.json();
 
-    if (!code || !languageId) {
+    if (!rawCode || !languageId) {
       return NextResponse.json(
         { error: 'Missing required fields: code, languageId' },
         { status: 400 }
       );
     }
+
+    const code = prepareExecutableCode(rawCode, languageId);
 
     let result = null;
 
@@ -289,7 +320,7 @@ export async function POST(request: NextRequest) {
       if (languageId === 63) {
         result = executeJavaScriptSandboxed(code, stdin);
       } else if (languageId === 71) {
-        result = executePythonMock(code, stdin);
+        result = executePythonMock(code);
       } else {
         result = {
           stdout: `[Offline Mode] Code execution service is temporarily unreachable.\nPlease try running again in a few moments.`,

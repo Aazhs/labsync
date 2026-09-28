@@ -21,6 +21,7 @@ const SYNTAX_PATTERNS: { pattern: RegExp; category: string; suggestion: string }
   { pattern: /NameError:\s*name '(\w+)' is not defined/i, category: 'Undefined Variable', suggestion: 'The variable has not been declared. Check for typos in variable names.' },
   { pattern: /TypeError/i, category: 'Type Mismatch', suggestion: 'You are using incompatible types. Check the types of your variables.' },
   { pattern: /IndexError/i, category: 'Index Out of Range', suggestion: 'You are accessing an index that does not exist. Check your loop bounds.' },
+  { pattern: /EOFError:\s*EOF when reading a line/i, category: 'Missing Standard Input (EOF)', suggestion: 'Your code requested input via input(), but standard input stream was empty. Enter input in the Terminal CLI prompt or Stdin tab.' },
   
   // C/C++
   { pattern: /error:\s*expected ';'/i, category: 'Missing Semicolon', suggestion: 'Add a semicolon at the end of the statement.' },
@@ -34,6 +35,7 @@ const SYNTAX_PATTERNS: { pattern: RegExp; category: string; suggestion: string }
   { pattern: /error:\s*cannot find symbol/i, category: 'Undefined Symbol', suggestion: 'The variable or method has not been declared. Check for typos.' },
   { pattern: /error:\s*incompatible types/i, category: 'Type Mismatch', suggestion: 'The types do not match. Check your variable types and return types.' },
   { pattern: /NullPointerException/i, category: 'Null Reference', suggestion: 'You are using an object that is null. Check your object initialization.' },
+  { pattern: /NoSuchElementException/i, category: 'Missing Standard Input', suggestion: 'Your Scanner tried to read from standard input, but standard input was empty. Enter input in the Stdin tab or Terminal CLI prompt.' },
   
   // JavaScript
   { pattern: /ReferenceError:\s*(\w+) is not defined/i, category: 'Undefined Variable', suggestion: 'The variable has not been declared. Check for typos.' },
@@ -42,7 +44,7 @@ const SYNTAX_PATTERNS: { pattern: RegExp; category: string; suggestion: string }
   // General
   { pattern: /compilation error/i, category: 'Compilation Failed', suggestion: 'Your code has errors that prevent it from compiling. Review the error messages above.' },
   { pattern: /runtime error/i, category: 'Runtime Error', suggestion: 'Your code compiled but crashed while running. Check for logic errors.' },
-  { pattern: /time limit exceeded/i, category: 'Time Limit Exceeded', suggestion: 'Your code is taking too long. Check for infinite loops or optimize your algorithm.' },
+  { pattern: /time limit exceeded/i, category: 'Time Limit Exceeded', suggestion: 'Your code is taking too long. Check for infinite loops, or check if the program is waiting for input (stdin).' },
 ];
 
 export function classifyError(stderr: string | null, compileOutput: string | null, statusDescription: string): ClassifiedError {

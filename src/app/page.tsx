@@ -1,18 +1,21 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useTheme } from '@/lib/theme';
 import {
   ArrowRight,
   Code2,
-  LayoutDashboard,
   ExternalLink,
   ChevronRight,
   Sun,
   Moon,
+  Users,
+  Sparkles,
 } from 'lucide-react';
+import JoinLabModal from '@/components/JoinLabModal';
+import CreateLobbyModal from '@/components/CreateLobbyModal';
 
 /* ─── Scroll reveal hook ─── */
 function useScrollReveal() {
@@ -114,6 +117,8 @@ export default function LandingPage() {
   const router = useRouter();
   const statsRef = useRef<HTMLDivElement>(null);
   const [statsVisible, setStatsVisible] = useState(false);
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   // Observe stats section
   useEffect(() => {
@@ -174,12 +179,36 @@ export default function LandingPage() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <ThemeToggle />
-          <button className="btn btn-ghost" onClick={() => router.push('/ide')}>
+          <button
+            className="btn btn-secondary"
+            onClick={() => setShowJoinModal(true)}
+            style={{ height: 32, fontSize: 12, padding: '0 12px', gap: 6, borderRadius: 4 }}
+          >
+            <Users size={13} />
+            Join Lab
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => setShowCreateModal(true)}
+            style={{ height: 32, fontSize: 12, padding: '0 12px', gap: 6, borderRadius: 4 }}
+          >
+            <Sparkles size={13} style={{ color: 'var(--brand-light)' }} />
+            Create Lobby
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => router.push('/ide')}
+            style={{ height: 32, fontSize: 12, padding: '0 12px', borderRadius: 4 }}
+          >
             Student IDE
           </button>
-          <button className="btn btn-primary" onClick={() => router.push('/dashboard')}>
+          <button
+            className="btn btn-primary"
+            onClick={() => router.push('/dashboard')}
+            style={{ height: 32, fontSize: 12, padding: '0 14px', gap: 6, borderRadius: 4 }}
+          >
             Instructor Dashboard
-            <ArrowRight size={14} />
+            <ArrowRight size={13} />
           </button>
         </div>
       </nav>
@@ -215,22 +244,31 @@ export default function LandingPage() {
             and alerts instructors with instant diagnoses across the entire lab room.
           </p>
 
-          <div className="hero-animate-3" style={{ display: 'flex', gap: 12 }}>
+          <div className="hero-animate-3" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
             <button
               className="btn btn-primary"
-              onClick={() => router.push('/ide')}
-              style={{ padding: '10px 22px', fontSize: 13 }}
+              onClick={() => setShowJoinModal(true)}
+              style={{ padding: '11px 22px', fontSize: 13, fontWeight: 700, borderRadius: 4, display: 'flex', alignItems: 'center', gap: 7 }}
             >
-              <Code2 size={15} />
-              Open Student IDE
+              <Users size={15} />
+              Join Lab (6-Digit Code)
+              <ArrowRight size={14} />
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => router.push('/dashboard')}
-              style={{ padding: '10px 22px', fontSize: 13 }}
+              onClick={() => setShowCreateModal(true)}
+              style={{ padding: '11px 20px', fontSize: 13, fontWeight: 600, borderRadius: 4, display: 'flex', alignItems: 'center', gap: 7 }}
             >
-              <LayoutDashboard size={15} />
-              Instructor Dashboard
+              <Sparkles size={15} style={{ color: 'var(--brand-light)' }} />
+              Create Lab Lobby
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={() => router.push('/ide')}
+              style={{ padding: '11px 18px', fontSize: 13, borderRadius: 4, display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <Code2 size={15} />
+              Open IDE
             </button>
           </div>
         </div>
@@ -396,6 +434,10 @@ export default function LandingPage() {
         {' · '}
         Diagnostic intelligence for college programming labs
       </footer>
+
+      {/* ─── Modals ─── */}
+      <JoinLabModal isOpen={showJoinModal} onClose={() => setShowJoinModal(false)} />
+      <CreateLobbyModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} />
     </div>
   );
 }
