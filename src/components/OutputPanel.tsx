@@ -117,8 +117,9 @@ export default function OutputPanel({ onRun }: OutputPanelProps) {
         timestamp: Date.now(),
       });
 
-      // Append to accumulated stdin
-      const nextStdin = stdin ? `${stdin.trimEnd()}\n${val}\n` : `${val}\n`;
+      // Append to accumulated stdin using fresh store state
+      const currentStdin = useIDEStore.getState().stdin;
+      const nextStdin = currentStdin ? `${currentStdin.trimEnd()}\n${val}\n` : `${val}\n`;
       setStdin(nextStdin);
       setCliInput('');
       setIsWaitingForInput(false);
@@ -143,6 +144,35 @@ export default function OutputPanel({ onRun }: OutputPanelProps) {
         const nextIdx = historyIdx + 1;
         setHistoryIdx(nextIdx);
         setCliInput(terminalHistory[nextIdx]);
+      }
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text');
+    if (text.includes('\n')) {
+      e.preventDefault();
+      const lines = text.split('\n').filter((l) => l.trim() !== '');
+      if (lines.length === 0) return;
+
+      lines.forEach((line) => {
+        addOutput({
+          type: 'stdin',
+          content: line,
+          timestamp: Date.now(),
+        });
+      });
+
+      const currentStdin = useIDEStore.getState().stdin;
+      const nextStdin = currentStdin
+        ? `${currentStdin.trimEnd()}\n${lines.join('\n')}\n`
+        : `${lines.join('\n')}\n`;
+
+      setStdin(nextStdin);
+      setCliInput('');
+      setIsWaitingForInput(false);
+      if (onRun) {
+        onRun(nextStdin);
       }
     }
   };
@@ -272,6 +302,7 @@ export default function OutputPanel({ onRun }: OutputPanelProps) {
                   value={cliInput}
                   onChange={(e) => setCliInput(e.target.value)}
                   onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
                   placeholder={
                     isWaitingForInput
                       ? 'Type input for program and press Enter ↵'

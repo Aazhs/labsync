@@ -473,6 +473,11 @@ export async function updateLobbyBroadcast(
           lobbies[idx] = { ...lobbies[idx], ...updates, updated_at: new Date().toISOString() };
           saveLocalLobbies(lobbies);
         }
+        broadcastChannel?.postMessage({
+          type: 'BROADCAST_UPDATED',
+          roomCode: cleanCode,
+          updates,
+        });
         return data as LabLobby;
       }
     } catch (err) {
@@ -530,6 +535,11 @@ export async function updateLobbyStatus(
           lobbies[idx] = { ...lobbies[idx], status, updated_at: new Date().toISOString() };
           saveLocalLobbies(lobbies);
         }
+        broadcastChannel?.postMessage({
+          type: 'STATUS_UPDATED',
+          roomCode: cleanCode,
+          status,
+        });
         return data as LabLobby;
       }
     } catch (err) {

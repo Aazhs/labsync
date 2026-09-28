@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, Suspense } from 'react';
+import { useCallback, useEffect, useState, useRef, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useIDEStore, LANGUAGES } from '@/lib/store';
@@ -12,7 +12,7 @@ import LivePreview from '@/components/LivePreview';
 import StatusBar from '@/components/StatusBar';
 import OutputPanel from '@/components/OutputPanel';
 import AIHintPanel from '@/components/AIHintPanel';
-import { Plus, X, EyeOff, Radio, Copy, ArrowRight } from 'lucide-react';
+import { Plus, X, EyeOff, Radio, Copy, ArrowRight, Lock } from 'lucide-react';
 import { soundManager } from '@/lib/sound';
 
 // Dynamic import for Monaco (no SSR)
@@ -74,6 +74,10 @@ function IDEPageContent() {
   const role = searchParams.get('role');
   const [lobbyStatus, setLobbyStatus] = useState<'active' | 'paused' | 'completed'>('active');
 
+  // Queue for rapid consecutive stdin inputs
+  const pendingStdinRef = useRef<string | null>(null);
+  const runCodeRef = useRef<(customStdin?: unknown) => Promise<void>>(() => Promise.resolve());
+
   // If joined via a specific lobby, sync lobby language, professor broadcast, status, and follow mode
   useEffect(() => {
     if (!roomCode) return;
@@ -100,11 +104,13 @@ function IDEPageContent() {
       const isViewingAllowed = lobby.broadcast_enabled !== false;
       useIDEStore.getState().setBroadcastEnabled(isViewingAllowed);
 
-      // Sync follow mode
-      if (lobby.follow_mode) {
+      // Auto-open professor code split-screen in Student IDE when broadcast is active or follow mode is ON
+      const isTeacherBroadcasting = Boolean(lobby.broadcast_code && lobby.broadcast_code.trim().length > 0);
+      const shouldAutoOpen = role !== 'teacher' && isViewingAllowed && (lobby.follow_mode || isTeacherBroadcasting);
+      if (shouldAutoOpen) {
         useIDEStore.getState().setSessionMode('follow');
         useIDEStore.getState().setShowReferencePane(true);
-      } else {
+      } else if (lobby.follow_mode === false && !isTeacherBroadcasting) {
         useIDEStore.getState().setSessionMode('practice');
       }
     };
@@ -112,7 +118,7 @@ function IDEPageContent() {
     syncRoom();
     const unsub = subscribeToLobbyUpdates(roomCode, syncRoom);
     return () => unsub();
-  }, [roomCode]);
+  }, [roomCode, role]);
 
   const handleStatusChange = async (nextStatus: 'active' | 'paused' | 'completed') => {
     if (!roomCode) return;
@@ -131,39 +137,18 @@ function IDEPageContent() {
   const [isResizingPreview, setIsResizingPreview] = useState(false);
 
   const runCode = useCallback(async (customStdin?: unknown) => {
-    if (isRunning) return;
-
-    // Check if lab session is currently paused or ended by the instructor
-    if (lobbyStatus === 'paused' && role !== 'teacher') {
-      setActiveOutputTab('terminal');
-      if (!useIDEStore.getState().showOutput) {
-        useIDEStore.getState().toggleOutput();
-      }
-      addOutput({
-        type: 'error',
-        content: '⏸️ Execution Blocked: The instructor has paused this lab session. Code execution will resume when the instructor continues.',
-        timestamp: Date.now(),
-      });
-      return;
-    }
-
-    if (lobbyStatus === 'completed' && role !== 'teacher') {
-      setActiveOutputTab('terminal');
-      if (!useIDEStore.getState().showOutput) {
-        useIDEStore.getState().toggleOutput();
-      }
-      addOutput({
-        type: 'error',
-        content: '⏹️ Lab Ended: This lab session has been concluded by the instructor.',
-        timestamp: Date.now(),
-      });
-      return;
-    }
-
     // Guard against React SyntheticEvent or other objects passed by click handlers
     const stdinStr = typeof customStdin === 'string' ? customStdin : undefined;
     const isInteractiveInput = stdinStr !== undefined;
     const activeStdin = isInteractiveInput ? stdinStr : '';
+
+    if (isRunning) {
+      if (isInteractiveInput) {
+        // Queue this stdin so it immediately executes when the currently running process finishes
+        pendingStdinRef.current = activeStdin;
+      }
+      return;
+    }
 
     setIsRunning(true);
 
@@ -286,8 +271,12 @@ function IDEPageContent() {
 
       // Check if error is missing standard input (EOFError, NoSuchElementException, or timeout waiting for stdin)
       const isMissingInput =
+        Boolean(result.is_missing_input) ||
+        result.status?.id === 13 ||
         result.stderr?.includes('EOFError') ||
         result.stderr?.includes('NoSuchElementException') ||
+        result.stderr?.includes('ios_base::failure') ||
+        result.stderr?.includes('iostream_category') ||
         (result.status?.id === 5 &&
           (targetCode.includes('input(') ||
             targetCode.includes('cin') ||
@@ -374,6 +363,13 @@ function IDEPageContent() {
       }
     } finally {
       setIsRunning(false);
+      if (pendingStdinRef.current !== null) {
+        const nextInput = pendingStdinRef.current;
+        pendingStdinRef.current = null;
+        setTimeout(() => {
+          runCodeRef.current(nextInput);
+        }, 30);
+      }
     }
   }, [
     code,
@@ -389,6 +385,8 @@ function IDEPageContent() {
     setLastResult,
     setActiveOutputTab,
   ]);
+
+  runCodeRef.current = runCode;
 
   const stopCode = useCallback(() => {
     setIsRunning(false);
@@ -763,32 +761,26 @@ function IDEPageContent() {
                         </span>
                       )}
                     </div>
-                    {broadcastEnabled && referenceCode && (
+                    {broadcastEnabled && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <button
-                          className="btn btn-ghost"
-                          onClick={() => {
-                            navigator.clipboard.writeText(referenceCode);
-                            alert('Copied professor code to clipboard!');
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            background: 'rgba(239, 68, 68, 0.12)',
+                            color: 'var(--accent-danger)',
+                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
                           }}
-                          title="Copy code to clipboard"
-                          style={{ height: 22, fontSize: 10, padding: '0 6px', borderRadius: 3 }}
+                          title="Professor code is view-only. Copying is restricted to encourage hands-on learning."
                         >
-                          <Copy size={11} style={{ marginRight: 3 }} />
-                          Copy
-                        </button>
-                        <button
-                          className="btn btn-secondary"
-                          onClick={() => {
-                            setCode(referenceCode);
-                            alert('Pasted professor code into your editor!');
-                          }}
-                          title="Replace my code with professor's code"
-                          style={{ height: 22, fontSize: 10, padding: '0 6px', borderRadius: 3 }}
-                        >
-                          <ArrowRight size={11} style={{ marginRight: 3 }} />
-                          Use Code
-                        </button>
+                          <Lock size={10} />
+                          View Only • Copy Disabled
+                        </span>
                       </div>
                     )}
                   </div>
@@ -797,6 +789,7 @@ function IDEPageContent() {
                     {broadcastEnabled ? (
                       <CodeEditor
                         readOnly={true}
+                        disableCopy={true}
                         value={referenceCode || '// Waiting for professor to broadcast code...'}
                       />
                     ) : (

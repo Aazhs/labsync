@@ -10,10 +10,11 @@ import { checkSyntax, parseCompilerErrors, SyntaxProblem } from '@/lib/syntaxChe
 interface CodeEditorProps {
   readOnly?: boolean;
   value?: string;
+  disableCopy?: boolean;
   onChange?: (value: string) => void;
 }
 
-export default function CodeEditor({ readOnly = false, value, onChange }: CodeEditorProps) {
+export default function CodeEditor({ readOnly = false, value, disableCopy = false, onChange }: CodeEditorProps) {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const decorationsRef = useRef<string[]>([]);
@@ -92,8 +93,25 @@ export default function CodeEditor({ readOnly = false, value, onChange }: CodeEd
       window.dispatchEvent(new CustomEvent('labsync:save'));
     });
 
-    editor.focus();
-  }, []);
+    if (disableCopy) {
+      // Prevent copy, cut, and select-all keyboard shortcuts
+      editor.onKeyDown((e) => {
+        if (
+          (e.ctrlKey || e.metaKey) &&
+          (e.keyCode === monaco.KeyCode.KeyC ||
+            e.keyCode === monaco.KeyCode.KeyX ||
+            e.keyCode === monaco.KeyCode.KeyA)
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      });
+    }
+
+    if (!readOnly) {
+      editor.focus();
+    }
+  }, [disableCopy, readOnly]);
 
   const handleChange = useCallback((val: string | undefined) => {
     const newVal = val || '';
@@ -286,7 +304,37 @@ export default function CodeEditor({ readOnly = false, value, onChange }: CodeEd
   };
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div
+      onCopy={(e) => {
+        if (disableCopy) {
+          e.preventDefault();
+          e.stopPropagation();
+          return false;
+        }
+      }}
+      onCut={(e) => {
+        if (disableCopy) {
+          e.preventDefault();
+          e.stopPropagation();
+          return false;
+        }
+      }}
+      onContextMenu={(e) => {
+        if (disableCopy) {
+          e.preventDefault();
+          e.stopPropagation();
+          return false;
+        }
+      }}
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        userSelect: disableCopy ? 'none' : undefined,
+        WebkitUserSelect: disableCopy ? 'none' : undefined,
+      }}
+    >
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
         <Editor
           height="100%"
@@ -297,6 +345,9 @@ export default function CodeEditor({ readOnly = false, value, onChange }: CodeEd
           theme={theme === 'light' ? 'vs' : 'vs-dark'}
           options={{
             readOnly,
+            domReadOnly: readOnly,
+            contextmenu: !disableCopy,
+            selectionClipboard: !disableCopy,
             fontSize,
             fontFamily: "'Geist Mono', 'Fira Code', 'JetBrains Mono', monospace",
             fontLigatures: true,

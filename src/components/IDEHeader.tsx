@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { useIDEStore, LANGUAGES } from '@/lib/store';
 import { useTheme } from '@/lib/theme';
@@ -25,6 +25,7 @@ import {
   LayoutDashboard,
   Check,
   Pause,
+  Lock,
 } from 'lucide-react';
 import { updateLobbyBroadcast } from '@/lib/lobbyService';
 
@@ -70,14 +71,66 @@ export default function IDEHeader({
 
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [broadcastSaved, setBroadcastSaved] = useState(false);
+  const [broadcastMode, setBroadcastMode] = useState(true); // Default to Broadcast Mode as requested
+  const [isSyncing, setIsSyncing] = useState(false);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const { theme, toggle: toggleTheme } = useTheme();
 
-  const handleBroadcastFromIDE = async () => {
+  // Auto-broadcast teacher code continuously when in Broadcast Mode
+  useEffect(() => {
+    if (role !== 'teacher' || !roomCode) return;
+
+    if (!broadcastMode) {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      setIsSyncing(false);
+      return;
+    }
+
+    setIsSyncing(true);
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    debounceTimerRef.current = setTimeout(async () => {
+      try {
+        await updateLobbyBroadcast(roomCode, {
+          broadcast_code: code,
+          follow_mode: true,
+          broadcast_enabled: true,
+        });
+      } catch (err) {
+        console.error('Auto-broadcast error:', err);
+      } finally {
+        setIsSyncing(false);
+      }
+    }, 450);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [code, broadcastMode, roomCode, role]);
+
+  const handleToggleBroadcastMode = async (enableBroadcast: boolean) => {
+    setBroadcastMode(enableBroadcast);
     if (!roomCode) return;
-    await updateLobbyBroadcast(roomCode, { broadcast_code: code });
-    setBroadcastSaved(true);
-    setTimeout(() => setBroadcastSaved(false), 2000);
+
+    if (enableBroadcast) {
+      setIsSyncing(true);
+      await updateLobbyBroadcast(roomCode, {
+        broadcast_code: code,
+        follow_mode: true,
+        broadcast_enabled: true,
+      });
+      setIsSyncing(false);
+    } else {
+      await updateLobbyBroadcast(roomCode, {
+        follow_mode: false,
+        broadcast_enabled: false,
+      });
+    }
   };
 
   return (
@@ -252,24 +305,6 @@ export default function IDEHeader({
                 </button>
               )}
 
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={handleBroadcastFromIDE}
-                style={{
-                  height: 24,
-                  fontSize: 10,
-                  padding: '0 8px',
-                  borderRadius: 4,
-                  gap: 4,
-                  color: broadcastSaved ? 'var(--accent-success-light)' : 'var(--brand-light)',
-                  borderColor: broadcastSaved ? 'var(--accent-success)' : undefined,
-                }}
-                title="Broadcast your active editor code to all students in room"
-              >
-                {broadcastSaved ? <Check size={11} /> : <Radio size={11} />}
-                {broadcastSaved ? 'Broadcasted!' : 'Broadcast Code'}
-              </button>
               <a
                 href="/dashboard"
                 className="btn btn-ghost"
@@ -292,8 +327,133 @@ export default function IDEHeader({
           )}
         </div>
 
-        {/* Center: Language + Run */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* Center: Instructor Broadcast Slider + Language + Run */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {role === 'teacher' && roomCode && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '3px 4px',
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-medium)',
+                borderRadius: 8,
+                boxShadow: 'inset 0 1px 3px rgba(0, 0, 0, 0.4)',
+              }}
+              title="Instructor Broadcast Controller: Continuously streams your code to all students"
+            >
+              {/* Segmented slider pill */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  background: 'rgba(0, 0, 0, 0.3)',
+                  borderRadius: 6,
+                  padding: 2,
+                  gap: 2,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleToggleBroadcastMode(true)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 26,
+                    padding: '0 11px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 4,
+                    border: broadcastMode ? '1px solid rgba(212, 148, 58, 0.6)' : '1px solid transparent',
+                    background: broadcastMode
+                      ? 'linear-gradient(135deg, rgba(212, 148, 58, 0.25) 0%, rgba(224, 74, 59, 0.25) 100%)'
+                      : 'transparent',
+                    color: broadcastMode ? '#ffffff' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    boxShadow: broadcastMode ? '0 1px 8px rgba(212, 148, 58, 0.35)' : 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title="Broadcast Mode (Default): Automatically broadcasts your code live to all students in the room"
+                >
+                  <Radio size={12} style={{ color: broadcastMode ? 'var(--brand-light)' : 'inherit' }} />
+                  <span>Broadcast Mode</span>
+                  {broadcastMode && (
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: isSyncing ? 'var(--accent-info)' : 'var(--accent-success)',
+                        boxShadow: isSyncing
+                          ? '0 0 6px var(--accent-info)'
+                          : '0 0 6px var(--accent-success)',
+                        animation: 'pulse-live-dot 1.5s infinite',
+                      }}
+                    />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleToggleBroadcastMode(false)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 26,
+                    padding: '0 11px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 4,
+                    border: !broadcastMode ? '1px solid var(--border-medium)' : '1px solid transparent',
+                    background: !broadcastMode ? 'var(--bg-surface)' : 'transparent',
+                    color: !broadcastMode ? 'var(--text-primary)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    boxShadow: !broadcastMode ? '0 1px 4px rgba(0, 0, 0, 0.25)' : 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title="Normal Mode: Private editor. Code is kept private and not broadcast to students."
+                >
+                  <Lock size={11} />
+                  <span>Normal Mode</span>
+                </button>
+              </div>
+
+              {/* Status text */}
+              <div style={{ display: 'flex', alignItems: 'center', paddingRight: 6 }}>
+                {broadcastMode ? (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      fontFamily: 'var(--font-mono)',
+                      color: isSyncing ? 'var(--accent-info)' : 'var(--accent-success-light)',
+                      letterSpacing: '0.02em',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {isSyncing ? '⚡ Syncing...' : '● Live Stream'}
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--text-muted)',
+                      letterSpacing: '0.02em',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    🔒 Private
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="select-wrapper">
             <select
               className="select"

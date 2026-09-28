@@ -8,15 +8,18 @@ const JUDGE0_KEY = process.env.JUDGE0_API_KEY || '';
 // Detect if we're on Vercel (no local compilers available)
 const IS_VERCEL = process.env.VERCEL === '1' || process.env.VERCEL_ENV !== undefined;
 
-// ─── Local execution (dev only, not on Vercel) ───
-async function executeLocal(code: string, languageId: number, stdin: string): Promise<{
+export interface ExecutionResult {
   stdout: string | null;
   stderr: string | null;
   compile_output: string | null;
   status: { id: number; description: string };
   time: string | null;
   memory: number | null;
-}> {
+  is_missing_input?: boolean;
+}
+
+// ─── Local execution (dev only, not on Vercel) ───
+async function executeLocal(code: string, languageId: number, stdin: string): Promise<ExecutionResult> {
   const { execSync } = await import('child_process');
   const { writeFileSync, mkdirSync, rmSync } = await import('fs');
 
@@ -24,28 +27,69 @@ async function executeLocal(code: string, languageId: number, stdin: string): Pr
   const tmpDir = `/tmp/labsync_${runId}`;
   mkdirSync(tmpDir, { recursive: true });
 
-  const langMap: Record<number, { filename: string; cmd: string }> = {
-    71: { filename: 'main.py', cmd: `python3 ${tmpDir}/main.py` },
-    63: { filename: 'main.js', cmd: `node ${tmpDir}/main.js` },
-    50: { filename: 'main.c', cmd: `gcc -o ${tmpDir}/a.out ${tmpDir}/main.c && ${tmpDir}/a.out` },
-    54: { filename: 'main.cpp', cmd: `g++ -o ${tmpDir}/a.out ${tmpDir}/main.cpp && ${tmpDir}/a.out` },
-    62: { filename: 'Main.java', cmd: `javac ${tmpDir}/Main.java && java -cp ${tmpDir} Main` },
+  const langFileMap: Record<number, string> = {
+    71: 'main.py',
+    63: 'main.js',
+    50: 'main.c',
+    54: 'main.cpp',
+    62: 'Main.java',
   };
 
-  const lang = langMap[languageId];
-
-  if (!lang) {
+  const filename = langFileMap[languageId];
+  if (!filename) {
     try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
     throw new Error(`Language ID ${languageId} not supported in local mode`);
   }
 
-  const filePath = `${tmpDir}/${lang.filename}`;
+  const filePath = `${tmpDir}/${filename}`;
   writeFileSync(filePath, code);
 
+  let compileCmd: string | null = null;
+  let runCmd: string = '';
+
+  if (languageId === 50) {
+    compileCmd = `gcc -O2 -o ${tmpDir}/a.out ${tmpDir}/main.c`;
+    runCmd = `${tmpDir}/a.out`;
+  } else if (languageId === 54) {
+    compileCmd = `g++ -O2 -o ${tmpDir}/a.out ${tmpDir}/main.cpp`;
+    runCmd = `${tmpDir}/a.out`;
+  } else if (languageId === 62) {
+    compileCmd = `javac ${tmpDir}/Main.java`;
+    runCmd = `java -cp ${tmpDir} Main`;
+  } else if (languageId === 71) {
+    runCmd = `python3 ${tmpDir}/main.py`;
+  } else if (languageId === 63) {
+    runCmd = `node ${tmpDir}/main.js`;
+  }
+
+  // 1. Compile step (if applicable)
+  if (compileCmd) {
+    try {
+      execSync(compileCmd, {
+        timeout: 10000,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch (compileErr: unknown) {
+      const err = compileErr as { stderr?: string; stdout?: string };
+      try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      return {
+        stdout: null,
+        stderr: null,
+        compile_output: err.stderr || err.stdout || 'Compilation failed',
+        status: { id: 6, description: 'Compilation Error' },
+        time: null,
+        memory: null,
+        is_missing_input: false,
+      };
+    }
+  }
+
+  // 2. Execution step
   const startTime = Date.now();
 
   try {
-    const result = execSync(lang.cmd, {
+    const result = execSync(runCmd, {
       timeout: 10000,
       encoding: 'utf-8',
       input: stdin !== undefined ? stdin : '',
@@ -62,10 +106,32 @@ async function executeLocal(code: string, languageId: number, stdin: string): Pr
       status: { id: 3, description: 'Accepted' },
       time: elapsed,
       memory: null,
+      is_missing_input: false,
     };
   } catch (error: unknown) {
     const execError = error as { stderr?: string; stdout?: string; status?: number; message?: string };
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(3);
     const isTimeout = execError.message?.includes('TIMEOUT');
+
+    // Check if error is because the program is waiting for more interactive stdin input
+    const isEofWaiting =
+      Boolean(execError.stderr?.includes('ios_base::failure') ||
+      execError.stderr?.includes('iostream_category error') ||
+      execError.stderr?.includes('[LabSync:WAITING_INPUT]') ||
+      execError.stderr?.includes('EOFError') ||
+      execError.stderr?.includes('NoSuchElementException'));
+
+    if (isEofWaiting) {
+      return {
+        stdout: execError.stdout || null,
+        stderr: null,
+        compile_output: null,
+        status: { id: 13, description: 'Waiting for Input' },
+        time: elapsed,
+        memory: null,
+        is_missing_input: true,
+      };
+    }
 
     return {
       stdout: execError.stdout || null,
@@ -79,6 +145,7 @@ async function executeLocal(code: string, languageId: number, stdin: string): Pr
       },
       time: null,
       memory: null,
+      is_missing_input: false,
     };
   } finally {
     try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
@@ -86,7 +153,7 @@ async function executeLocal(code: string, languageId: number, stdin: string): Pr
 }
 
 // ─── Judge0 API execution (100% Free Public Instance) ───
-async function executeWithJudge0(code: string, languageId: number, stdin: string) {
+async function executeWithJudge0(code: string, languageId: number, stdin: string): Promise<ExecutionResult> {
   const isRapidApi = JUDGE0_API.includes('rapidapi.com');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -128,6 +195,7 @@ async function executeWithJudge0(code: string, languageId: number, stdin: string
     status: result.status,
     time: result.time,
     memory: result.memory,
+    is_missing_input: false,
   };
 }
 
@@ -279,6 +347,19 @@ function prepareExecutableCode(code: string, languageId: number): string {
       return `${code}\n\nif __name__ == "__main__":\n    main()\n`;
     }
   }
+
+  // C++ (id: 54): Guard against silent EOF failure when interactive input is needed
+  if (languageId === 54 && code.includes('cin')) {
+    const cinGuard = `#include <iostream>\nstruct __LabSyncCinGuard { __LabSyncCinGuard() { std::cin.exceptions(std::ios_base::eofbit); } };\nstatic __LabSyncCinGuard __labsync_cin_guard;\n`;
+    return `${cinGuard}\n${code}`;
+  }
+
+  // C (id: 50): Guard against silent EOF failure on scanf
+  if (languageId === 50 && code.includes('scanf')) {
+    const scanfGuard = `#include <stdio.h>\n#include <stdlib.h>\n#define scanf(...) (scanf(__VA_ARGS__) == EOF ? (fprintf(stderr, "[LabSync:WAITING_INPUT]\\n"), exit(42), EOF) : 0)\n`;
+    return `${scanfGuard}\n${code}`;
+  }
+
   return code;
 }
 
@@ -295,7 +376,7 @@ export async function POST(request: NextRequest) {
 
     const code = prepareExecutableCode(rawCode, languageId);
 
-    let result = null;
+    let result: ExecutionResult | null = null;
 
     // 1. If running locally on Mac/dev and local compiler is available, use local execution for speed
     if (!IS_VERCEL && !JUDGE0_KEY) {
@@ -330,6 +411,22 @@ export async function POST(request: NextRequest) {
           time: '0.001',
           memory: null,
         };
+      }
+    }
+
+    // Standardize EOF / interactive waiting across all execution backends
+    if (result && result.stderr) {
+      const isEofWaiting = Boolean(
+        result.stderr.includes('ios_base::failure') ||
+        result.stderr.includes('iostream_category') ||
+        result.stderr.includes('[LabSync:WAITING_INPUT]') ||
+        result.stderr.includes('EOFError') ||
+        result.stderr.includes('NoSuchElementException')
+      );
+      if (isEofWaiting) {
+        result.status = { id: 13, description: 'Waiting for Input' };
+        result.is_missing_input = true;
+        result.stderr = null;
       }
     }
 
