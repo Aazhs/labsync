@@ -12,7 +12,7 @@ import LivePreview from '@/components/LivePreview';
 import StatusBar from '@/components/StatusBar';
 import OutputPanel from '@/components/OutputPanel';
 import AIHintPanel from '@/components/AIHintPanel';
-import { Plus, X, EyeOff, Radio, Copy, ArrowRight, Lock } from 'lucide-react';
+import { Plus, X, Eye, EyeOff, Radio, Copy, ArrowRight, Lock } from 'lucide-react';
 import { soundManager } from '@/lib/sound';
 
 // Dynamic import for Monaco (no SSR)
@@ -680,59 +680,56 @@ function IDEPageContent() {
             height: '100%',
           }}
         >
-          {/* Follow Mode Banner */}
+          {/* Follow Mode / Reference Mode Bar */}
           {sessionMode === 'follow' ? (
-            <div
-              className="mode-banner mode-follow"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '7px 16px',
-              }}
-            >
+            <div className="mode-banner mode-follow">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span className="live-dot" />
-                <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: '0.06em', color: '#fff' }}>
-                  FOLLOW MODE ACTIVE
-                </span>
-                <span style={{ color: 'var(--brand-light)', fontSize: 11, fontWeight: 500, textTransform: 'none' }}>
-                  • Watching professor&apos;s live demonstration code in split view
+                <div className="mode-badge-follow">
+                  <span className="live-dot-amber" />
+                  <span>FOLLOW MODE</span>
+                </div>
+                <span className="mode-desc">
+                  Watching instructor&apos;s live demonstration code in split view
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => setShowReferencePane(!showReferencePane)}
-                className="btn btn-secondary"
-                style={{ height: 24, fontSize: 10, padding: '0 8px', borderRadius: 3 }}
+                className={`mode-toggle-btn ${showReferencePane ? 'btn-ghost' : 'btn-accent'}`}
+                title={showReferencePane ? 'Minimize split view' : 'Open professor demonstration code in split view'}
               >
-                {showReferencePane ? 'Hide Professor Split' : 'Show Professor Split'}
+                {showReferencePane ? (
+                  <>
+                    <EyeOff size={11} />
+                    <span>Hide Split View</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye size={11} />
+                    <span>Show Split View</span>
+                  </>
+                )}
               </button>
             </div>
           ) : (
             showReferencePane && (
-              <div
-                className="mode-banner mode-practice"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '6px 16px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ color: 'var(--accent-success-light)', fontWeight: 700 }}>✏️ PRACTICE MODE</span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: 11, textTransform: 'none' }}>
-                    — Split view open to professor&apos;s reference material
+              <div className="mode-banner mode-practice">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div className="mode-badge-practice">
+                    <span>✏️ PRACTICE</span>
+                  </div>
+                  <span className="mode-desc">
+                    Viewing instructor reference material in split view
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowReferencePane(false)}
-                  className="btn btn-ghost"
-                  style={{ height: 22, fontSize: 10, padding: '0 8px' }}
+                  className="mode-toggle-btn btn-ghost"
+                  title="Close reference split pane"
                 >
-                  Close Reference
+                  <EyeOff size={11} />
+                  <span>Close Split</span>
                 </button>
               </div>
             )

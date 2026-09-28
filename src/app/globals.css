@@ -802,37 +802,111 @@ nextjs-portal {
 .mode-banner {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 8px 16px;
+  justify-content: space-between;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 12px;
   font-size: 11px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  box-sizing: border-box;
+  transition: all 0.15s ease;
+  z-index: 10;
+}
+
+.mode-banner.mode-follow {
+  background: #0d0d0e;
+  border-bottom: 1px solid rgba(212, 148, 58, 0.2);
+}
+
+.mode-badge-follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
   font-weight: 700;
+  font-family: var(--font-mono, monospace);
   letter-spacing: 0.05em;
-  transition: all 0.2s ease;
+  background: rgba(212, 148, 58, 0.12);
+  color: var(--brand-light);
+  border: 1px solid rgba(212, 148, 58, 0.28);
 }
-.mode-follow {
-  background: linear-gradient(90deg, rgba(212, 148, 58, 0.18) 0%, rgba(91, 141, 184, 0.18) 100%);
-  color: #f5f0e8;
-  border-bottom: 1px solid rgba(212, 148, 58, 0.35);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-}
-.mode-follow .live-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #e04a3b;
-  box-shadow: 0 0 8px #e04a3b;
-  animation: pulse-live-dot 1.5s ease-in-out infinite;
-  display: inline-block;
-}
-@keyframes pulse-live-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.3; transform: scale(0.85); }
-}
-.mode-practice {
+
+.mode-badge-practice {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  letter-spacing: 0.05em;
   background: rgba(61, 140, 111, 0.12);
   color: var(--accent-success-light);
-  border-bottom: 1px solid rgba(61, 140, 111, 0.25);
+  border: 1px solid rgba(61, 140, 111, 0.25);
+}
+
+.live-dot-amber {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-light);
+  box-shadow: 0 0 6px var(--brand);
+  animation: pulse-live-dot 1.6s ease-in-out infinite;
+  display: inline-block;
+}
+
+.mode-desc {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: normal;
+}
+
+.mode-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  border: none;
+}
+
+.mode-toggle-btn.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.mode-toggle-btn.btn-ghost:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+.mode-toggle-btn.btn-accent {
+  background: rgba(212, 148, 58, 0.1);
+  color: var(--brand-light);
+  border: 1px solid rgba(212, 148, 58, 0.3);
+}
+
+.mode-toggle-btn.btn-accent:hover {
+  background: rgba(212, 148, 58, 0.2);
+  border-color: var(--brand);
+}
+
+.mode-banner.mode-practice {
+  background: #0d0d0e;
+  border-bottom: 1px solid rgba(61, 140, 111, 0.2);
 }
 
 /* ═══════════════════════════════════════════
