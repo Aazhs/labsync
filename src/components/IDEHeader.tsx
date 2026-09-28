@@ -21,7 +21,11 @@ import {
   Volume2,
   VolumeX,
   Users,
+  Radio,
+  LayoutDashboard,
+  Check,
 } from 'lucide-react';
+import { updateLobbyBroadcast } from '@/lib/lobbyService';
 
 interface IDEHeaderProps {
   onRun: () => void;
@@ -39,6 +43,7 @@ export default function IDEHeader({
   role,
 }: IDEHeaderProps) {
   const {
+    code,
     language,
     setLanguage,
     isRunning,
@@ -58,7 +63,15 @@ export default function IDEHeader({
 
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [broadcastSaved, setBroadcastSaved] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
+
+  const handleBroadcastFromIDE = async () => {
+    if (!roomCode) return;
+    await updateLobbyBroadcast(roomCode, { broadcast_code: code });
+    setBroadcastSaved(true);
+    setTimeout(() => setBroadcastSaved(false), 2000);
+  };
 
   return (
     <>
@@ -146,6 +159,47 @@ export default function IDEHeader({
                   [Host]
                 </span>
               )}
+            </div>
+          )}
+
+          {role === 'teacher' && roomCode && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleBroadcastFromIDE}
+                style={{
+                  height: 24,
+                  fontSize: 10,
+                  padding: '0 8px',
+                  borderRadius: 4,
+                  gap: 4,
+                  color: broadcastSaved ? 'var(--accent-success-light)' : 'var(--brand-light)',
+                  borderColor: broadcastSaved ? 'var(--accent-success)' : undefined,
+                }}
+                title="Broadcast your active editor code to all students in room"
+              >
+                {broadcastSaved ? <Check size={11} /> : <Radio size={11} />}
+                {broadcastSaved ? 'Broadcasted!' : 'Broadcast Code'}
+              </button>
+              <a
+                href="/dashboard"
+                className="btn btn-ghost"
+                style={{
+                  height: 24,
+                  fontSize: 10,
+                  padding: '0 8px',
+                  borderRadius: 4,
+                  gap: 4,
+                  textDecoration: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+                title="Return to Instructor Dashboard"
+              >
+                <LayoutDashboard size={11} />
+                Dashboard
+              </a>
             </div>
           )}
         </div>

@@ -20,7 +20,6 @@ import {
   ExternalLink,
   Radio,
   Send,
-  HelpCircle,
   Sparkles,
 } from 'lucide-react';
 import {
@@ -91,7 +90,7 @@ export default function DashboardPage() {
     return () => {
       isMounted = false;
     };
-  }, [activeLobby?.id, activeLobby?.updated_at]);
+  }, [activeLobby]);
 
   const refreshLobbies = async () => {
     const list = await listActiveLobbies();
@@ -115,7 +114,7 @@ export default function DashboardPage() {
     fetchStudentsAndLobby();
     const unsub = subscribeToLobbyUpdates(activeLobby.room_code, fetchStudentsAndLobby);
     return () => unsub();
-  }, [activeLobby?.room_code]);
+  }, [activeLobby]);
 
   const copyRoomCode = () => {
     if (!activeLobby) return;
@@ -183,15 +182,6 @@ export default function DashboardPage() {
       case 'coding': return 'var(--accent-success)';
       case 'completed': return 'var(--accent-info)';
       default: return 'var(--text-tertiary)';
-    }
-  };
-
-  const getTierBadge = (tier?: string) => {
-    switch (tier) {
-      case 'syntax': return 'badge-error';
-      case 'logic': return 'badge-warning';
-      case 'conceptual': return 'badge-info';
-      default: return '';
     }
   };
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useIDEStore, LANGUAGES } from '@/lib/store';
-import { getLobbyByCode } from '@/lib/lobbyService';
+import { getLobbyByCode, subscribeToLobbyUpdates } from '@/lib/lobbyService';
 import IDEHeader from '@/components/IDEHeader';
 import IDESidebar from '@/components/IDESidebar';
 import FileExplorer from '@/components/FileExplorer';
@@ -12,7 +12,7 @@ import LivePreview from '@/components/LivePreview';
 import StatusBar from '@/components/StatusBar';
 import OutputPanel from '@/components/OutputPanel';
 import AIHintPanel from '@/components/AIHintPanel';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, EyeOff, Radio, Copy, ArrowRight } from 'lucide-react';
 import { soundManager } from '@/lib/sound';
 
 // Dynamic import for Monaco (no SSR)
@@ -43,6 +43,7 @@ function IDEPageContent() {
     showOutput,
     showHintPanel,
     showReferencePane,
+    setShowReferencePane,
     showExplorer,
     showLivePreview,
     toggleExplorer,
@@ -52,6 +53,8 @@ function IDEPageContent() {
     openFileIds,
     sessionMode,
     referenceCode,
+    broadcastEnabled,
+    setCode,
     setActiveFile,
     closeFileTab,
     createFile,
@@ -69,19 +72,40 @@ function IDEPageContent() {
   const studentName = searchParams.get('student');
   const role = searchParams.get('role');
 
-  // If joined via a specific lobby, sync lobby settings
+  // If joined via a specific lobby, sync lobby language, professor broadcast, and follow mode
   useEffect(() => {
     if (!roomCode) return;
-    const syncLobby = async () => {
+    const syncRoom = async () => {
       const lobby = await getLobbyByCode(roomCode);
-      if (lobby && lobby.language) {
+      if (!lobby) return;
+
+      if (lobby.language) {
         const langObj = LANGUAGES.find((l) => l.name === lobby.language);
         if (langObj && langObj.id !== useIDEStore.getState().language.id) {
           useIDEStore.getState().setLanguage(langObj);
         }
       }
+
+      // Sync professor broadcast code
+      const profCode = lobby.broadcast_code ?? lobby.starter_code ?? '';
+      useIDEStore.getState().setReferenceCode(profCode);
+
+      // Sync viewing permission
+      const isViewingAllowed = lobby.broadcast_enabled !== false;
+      useIDEStore.getState().setBroadcastEnabled(isViewingAllowed);
+
+      // Sync follow mode
+      if (lobby.follow_mode) {
+        useIDEStore.getState().setSessionMode('follow');
+        useIDEStore.getState().setShowReferencePane(true);
+      } else {
+        useIDEStore.getState().setSessionMode('practice');
+      }
     };
-    syncLobby();
+
+    syncRoom();
+    const unsub = subscribeToLobbyUpdates(roomCode, syncRoom);
+    return () => unsub();
   }, [roomCode]);
 
   // Resizable panel sizes
@@ -579,10 +603,61 @@ function IDEPageContent() {
           }}
         >
           {/* Follow Mode Banner */}
-          {sessionMode === 'follow' && (
-            <div className="mode-banner mode-follow">
-              📡 Follow Mode — watching professor&apos;s live code
+          {sessionMode === 'follow' ? (
+            <div
+              className="mode-banner mode-follow"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '7px 16px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className="live-dot" />
+                <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: '0.06em', color: '#fff' }}>
+                  FOLLOW MODE ACTIVE
+                </span>
+                <span style={{ color: 'var(--brand-light)', fontSize: 11, fontWeight: 500, textTransform: 'none' }}>
+                  • Watching professor&apos;s live demonstration code in split view
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReferencePane(!showReferencePane)}
+                className="btn btn-secondary"
+                style={{ height: 24, fontSize: 10, padding: '0 8px', borderRadius: 3 }}
+              >
+                {showReferencePane ? 'Hide Professor Split' : 'Show Professor Split'}
+              </button>
             </div>
+          ) : (
+            showReferencePane && (
+              <div
+                className="mode-banner mode-practice"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '6px 16px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ color: 'var(--accent-success-light)', fontWeight: 700 }}>✏️ PRACTICE MODE</span>
+                  <span style={{ color: 'var(--text-muted)', fontSize: 11, textTransform: 'none' }}>
+                    — Split view open to professor&apos;s reference material
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowReferencePane(false)}
+                  className="btn btn-ghost"
+                  style={{ height: 22, fontSize: 10, padding: '0 8px' }}
+                >
+                  Close Reference
+                </button>
+              </div>
+            )
           )}
 
           {/* Editor Area (Top) */}
@@ -594,18 +669,91 @@ function IDEPageContent() {
               minHeight: 100,
             }}
           >
-            {/* Reference Pane (Follow Mode) */}
+            {/* Reference Pane (Professor's Code) */}
             {showReferencePane && (
               <>
-                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                  <div className="panel-header" style={{ height: 36, minHeight: 36 }}>
-                    <span>📖 Professor&apos;s Code (Read-Only)</span>
+                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)' }}>
+                  <div className="panel-header" style={{ height: 36, minHeight: 36, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <Radio size={13} style={{ color: 'var(--brand-light)' }} />
+                      <span style={{ fontWeight: 700, fontSize: 12 }}>Professor&apos;s Code (Read-Only)</span>
+                      {broadcastEnabled && (
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(61, 140, 111, 0.2)', color: 'var(--accent-success-light)' }}>
+                          LIVE SYNC
+                        </span>
+                      )}
+                    </div>
+                    {broadcastEnabled && referenceCode && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() => {
+                            navigator.clipboard.writeText(referenceCode);
+                            alert('Copied professor code to clipboard!');
+                          }}
+                          title="Copy code to clipboard"
+                          style={{ height: 22, fontSize: 10, padding: '0 6px', borderRadius: 3 }}
+                        >
+                          <Copy size={11} style={{ marginRight: 3 }} />
+                          Copy
+                        </button>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => {
+                            setCode(referenceCode);
+                            alert('Pasted professor code into your editor!');
+                          }}
+                          title="Replace my code with professor's code"
+                          style={{ height: 22, fontSize: 10, padding: '0 6px', borderRadius: 3 }}
+                        >
+                          <ArrowRight size={11} style={{ marginRight: 3 }} />
+                          Use Code
+                        </button>
+                      </div>
+                    )}
                   </div>
+
                   <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <CodeEditor
-                      readOnly={true}
-                      value={referenceCode || '// Professor\'s code will appear here\n// during Follow Mode sessions'}
-                    />
+                    {broadcastEnabled ? (
+                      <CodeEditor
+                        readOnly={true}
+                        value={referenceCode || '// Waiting for professor to broadcast code...'}
+                      />
+                    ) : (
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        height: '100%',
+                        padding: 24,
+                        textAlign: 'center',
+                        gap: 12,
+                        background: 'var(--bg-secondary)',
+                      }}>
+                        <div style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 8,
+                          background: 'rgba(224, 74, 59, 0.12)',
+                          border: '1px solid rgba(224, 74, 59, 0.3)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'var(--accent-danger)',
+                        }}>
+                          <EyeOff size={22} />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', marginBottom: 4 }}>
+                            Professor Code Viewing Disabled
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 280, lineHeight: 1.5 }}>
+                            Your instructor has temporarily hidden the broadcast code for this exercise. Complete the lab independently!
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="resize-divider-col" />
