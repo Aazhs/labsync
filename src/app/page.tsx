@@ -31,9 +31,8 @@ import {
   TeacherUser,
 } from '@/lib/teacherAuth';
 
-/* TODO: replace with the real team contact details before sharing publicly */
 const CONTACT = {
-  email: 'team@labsync.example',
+  email: 'aarshjozhi@gmail.com',
   demoSubject: 'LabSync demo request',
 };
 
