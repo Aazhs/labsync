@@ -1,5 +1,6 @@
 'use client';
 
+import type { User } from '@supabase/supabase-js';
 import { getSupabase } from './supabase';
 
 export interface TeacherUser {
@@ -10,67 +11,49 @@ export interface TeacherUser {
   role: 'teacher';
 }
 
+export type AuthResult = {
+  success: boolean;
+  teacher?: TeacherUser;
+  error?: string;
+  /** Informational message, e.g. "check your inbox to confirm your account". */
+  notice?: string;
+};
+
+export const TEACHER_EMAIL_DOMAIN = '@mitaoe.ac.in';
+export const MIN_PASSWORD_LENGTH = 8;
+
 const TEACHER_SESSION_KEY = 'labsync_teacher_session';
-const TEACHER_USERS_KEY = 'labsync_registered_teachers';
+// Demo mode only (no Supabase configured): accounts live in this browser.
+const DEMO_TEACHERS_KEY = 'labsync_demo_teachers';
 
-// Pre-seeded verified MITAOE instructors
-const DEFAULT_TEACHERS: TeacherUser[] = [
-  {
-    id: 'teacher-mitaoe-1',
-    name: 'Dr. Sarah Mitchell',
-    email: 'sarah.mitchell@mitaoe.ac.in',
-    department: 'School of Computer Engineering',
-    role: 'teacher',
-  },
-  {
-    id: 'teacher-mitaoe-2',
-    name: 'Prof. David Vance',
-    email: 'david.vance@mitaoe.ac.in',
-    department: 'School of Computer Engineering',
-    role: 'teacher',
-  },
-  {
-    id: 'teacher-mitaoe-demo',
-    name: 'Faculty Instructor',
-    email: 'instructor@mitaoe.ac.in',
-    department: 'Computer Engineering (MITAOE)',
-    role: 'teacher',
-  },
-];
-
-/**
- * Validates that the email belongs to the required @mitaoe.ac.in institutional domain.
- */
 export function isValidTeacherEmail(email: string): boolean {
-  if (!email) return false;
   const clean = email.trim().toLowerCase();
-  return clean.endsWith('@mitaoe.ac.in') && clean.length > '@mitaoe.ac.in'.length;
+  return clean.endsWith(TEACHER_EMAIL_DOMAIN) && clean.length > TEACHER_EMAIL_DOMAIN.length;
 }
 
-function getRegisteredTeachers(): TeacherUser[] {
-  if (typeof window === 'undefined') return DEFAULT_TEACHERS;
-  try {
-    const raw = localStorage.getItem(TEACHER_USERS_KEY);
-    if (!raw) {
-      localStorage.setItem(TEACHER_USERS_KEY, JSON.stringify(DEFAULT_TEACHERS));
-      return DEFAULT_TEACHERS;
-    }
-    return JSON.parse(raw);
-  } catch {
-    return DEFAULT_TEACHERS;
-  }
+function nameFromEmail(email: string): string {
+  return email
+    .split('@')[0]
+    .split(/[._-]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
-function saveRegisteredTeachers(teachers: TeacherUser[]) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(TEACHER_USERS_KEY, JSON.stringify(teachers));
-  } catch {}
+function teacherFromUser(user: User): TeacherUser {
+  const meta = user.user_metadata || {};
+  const email = (user.email || '').toLowerCase();
+  return {
+    id: user.id,
+    name: meta.name || nameFromEmail(email) || 'Instructor',
+    email,
+    department: meta.department || undefined,
+    role: 'teacher',
+  };
 }
 
-/**
- * Get currently logged in teacher from local session.
- */
+// ─── Cached session (lets pages render the signed-in state synchronously) ───
+
 export function getTeacherSession(): TeacherUser | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -81,187 +64,155 @@ export function getTeacherSession(): TeacherUser | null {
   }
 }
 
-/**
- * Set teacher session.
- */
-export function setTeacherSession(teacher: TeacherUser): void {
+function cacheTeacherSession(teacher: TeacherUser | null): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(teacher));
+    if (teacher) localStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(teacher));
+    else localStorage.removeItem(TEACHER_SESSION_KEY);
   } catch {}
 }
 
 /**
- * Sign in a teacher.
- * Validates email domain @mitaoe.ac.in and accepts any password.
+ * Confirms the cached session against Supabase Auth (when configured) and returns the
+ * signed-in teacher, or null. Use this before showing teacher-only screens.
  */
-export async function loginTeacher(
-  email: string,
-  password?: string
-): Promise<{ success: boolean; teacher?: TeacherUser; error?: string }> {
+export async function restoreTeacherSession(): Promise<TeacherUser | null> {
+  const supabase = getSupabase();
+  if (!supabase) return getTeacherSession();
+
+  const { data } = await supabase.auth.getSession();
+  const user = data.session?.user;
+  const teacher = user && isValidTeacherEmail(user.email || '') ? teacherFromUser(user) : null;
+  cacheTeacherSession(teacher);
+  return teacher;
+}
+
+// ─── Demo-mode account store ───
+
+type DemoAccount = TeacherUser & { passwordHash: string };
+
+async function hashPassword(email: string, password: string): Promise<string> {
+  const bytes = new TextEncoder().encode(`labsync:${email}:${password}`);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function getDemoAccounts(): DemoAccount[] {
+  try {
+    return JSON.parse(localStorage.getItem(DEMO_TEACHERS_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveDemoAccounts(accounts: DemoAccount[]) {
+  try {
+    localStorage.setItem(DEMO_TEACHERS_KEY, JSON.stringify(accounts));
+  } catch {}
+}
+
+function stripPassword({ passwordHash, ...teacher }: DemoAccount): TeacherUser {
+  return teacher;
+}
+
+// ─── Public API ───
+
+function validateCredentials(email: string, password: string): string | null {
+  if (!email) return 'Please enter your institutional email address.';
+  if (!isValidTeacherEmail(email)) {
+    return `Instructor accounts are limited to ${TEACHER_EMAIL_DOMAIN} email addresses.`;
+  }
+  if (!password) return 'Please enter your password.';
+  return null;
+}
+
+export async function loginTeacher(email: string, password: string): Promise<AuthResult> {
   const cleanEmail = email.trim().toLowerCase();
-
-  if (!cleanEmail) {
-    return { success: false, error: 'Please enter your teacher email address.' };
-  }
-
-  if (!isValidTeacherEmail(cleanEmail)) {
-    return {
-      success: false,
-      error: 'Access restricted: Only institutional @mitaoe.ac.in emails are authorized for instructor accounts.',
-    };
-  }
-
-  // Password requirement check
-  if (password !== undefined && password.trim().length === 0) {
-    return { success: false, error: 'Please enter a password.' };
-  }
+  const invalid = validateCredentials(cleanEmail, password);
+  if (invalid) return { success: false, error: invalid };
 
   const supabase = getSupabase();
   if (supabase) {
-    try {
-      const { data } = await supabase
-        .from('teachers')
-        .select('*')
-        .eq('email', cleanEmail)
-        .maybeSingle();
-
-      if (data) {
-        const teacherObj: TeacherUser = {
-          id: data.id,
-          name: data.name || cleanEmail.split('@')[0],
-          email: data.email,
-          department: data.department || 'Computer Engineering',
-          role: 'teacher',
-        };
-        setTeacherSession(teacherObj);
-        return { success: true, teacher: teacherObj };
+    const { data, error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
+    if (error || !data.user) {
+      const message = error?.message || '';
+      if (/email not confirmed/i.test(message)) {
+        return { success: false, error: 'Please confirm your email address first — check your inbox for the link.' };
       }
-    } catch (err) {
-      console.warn('Supabase teacher lookup error, falling back to local:', err);
+      return { success: false, error: 'Incorrect email or password.' };
     }
+    const teacher = teacherFromUser(data.user);
+    cacheTeacherSession(teacher);
+    return { success: true, teacher };
   }
 
-  // Local authentication & auto-registration
-  const teachers = getRegisteredTeachers();
-  let teacher = teachers.find((t) => t.email.toLowerCase() === cleanEmail);
-
-  if (!teacher) {
-    // Generate name from email username (e.g. "prof.sharma@mitaoe.ac.in" -> "Prof. Sharma")
-    const username = cleanEmail.split('@')[0];
-    const formattedName = username
-      .split(/[._-]/)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ');
-
-    teacher = {
-      id: `teacher-${Date.now()}`,
-      name: formattedName || 'MITAOE Faculty',
-      email: cleanEmail,
-      department: 'School of Computer Engineering',
-      role: 'teacher',
-    };
-    teachers.push(teacher);
-    saveRegisteredTeachers(teachers);
+  const account = getDemoAccounts().find((a) => a.email === cleanEmail);
+  if (!account || account.passwordHash !== (await hashPassword(cleanEmail, password))) {
+    return { success: false, error: 'Incorrect email or password.' };
   }
-
-  setTeacherSession(teacher);
+  const teacher = stripPassword(account);
+  cacheTeacherSession(teacher);
   return { success: true, teacher };
 }
 
-/**
- * Sign up a new teacher with name and @mitaoe.ac.in email.
- */
 export async function signupTeacher(
   name: string,
   email: string,
-  password?: string,
+  password: string,
   department?: string
-): Promise<{ success: boolean; teacher?: TeacherUser; error?: string }> {
+): Promise<AuthResult> {
   const cleanName = name.trim();
   const cleanEmail = email.trim().toLowerCase();
+  const cleanDepartment = department?.trim() || undefined;
 
-  if (!cleanName) {
-    return { success: false, error: 'Please enter your full name and title (e.g. Dr. / Prof.).' };
-  }
-
-  if (!cleanEmail) {
-    return { success: false, error: 'Please enter your official email address.' };
-  }
-
-  if (!isValidTeacherEmail(cleanEmail)) {
-    return {
-      success: false,
-      error: 'Invalid domain: Teacher registration is strictly limited to official @mitaoe.ac.in email addresses.',
-    };
-  }
-
-  if (password !== undefined && password.trim().length === 0) {
-    return { success: false, error: 'Please provide a password.' };
+  if (!cleanName) return { success: false, error: 'Please enter your full name.' };
+  const invalid = validateCredentials(cleanEmail, password);
+  if (invalid) return { success: false, error: invalid };
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return { success: false, error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.` };
   }
 
   const supabase = getSupabase();
   if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('teachers')
-        .insert({
-          name: cleanName,
-          email: cleanEmail,
-          department: department?.trim() || 'School of Computer Engineering',
-        })
-        .select()
-        .single();
-
-      if (!error && data) {
-        const teacherObj: TeacherUser = {
-          id: data.id,
-          name: data.name,
-          email: data.email,
-          department: data.department,
-          role: 'teacher',
-        };
-        setTeacherSession(teacherObj);
-        return { success: true, teacher: teacherObj };
-      }
-    } catch (err) {
-      console.warn('Supabase teacher signup error, using local:', err);
+    const { data, error } = await supabase.auth.signUp({
+      email: cleanEmail,
+      password,
+      options: {
+        data: { name: cleanName, department: cleanDepartment },
+        emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/dashboard` : undefined,
+      },
+    });
+    if (error) return { success: false, error: error.message };
+    if (!data.session || !data.user) {
+      return {
+        success: false,
+        notice: `Almost done — we sent a confirmation link to ${cleanEmail}. Open it, then sign in.`,
+      };
     }
+    const teacher = teacherFromUser(data.user);
+    cacheTeacherSession(teacher);
+    return { success: true, teacher };
   }
 
-  const teachers = getRegisteredTeachers();
-  const existing = teachers.find((t) => t.email.toLowerCase() === cleanEmail);
-
-  if (existing) {
-    // If already registered, update name if needed and log in
-    existing.name = cleanName;
-    if (department) existing.department = department.trim();
-    saveRegisteredTeachers(teachers);
-    setTeacherSession(existing);
-    return { success: true, teacher: existing };
+  const accounts = getDemoAccounts();
+  if (accounts.some((a) => a.email === cleanEmail)) {
+    return { success: false, error: 'An account with this email already exists. Sign in instead.' };
   }
-
-  const newTeacher: TeacherUser = {
-    id: `teacher-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+  const account: DemoAccount = {
+    id: `teacher-${crypto.randomUUID()}`,
     name: cleanName,
     email: cleanEmail,
-    department: department?.trim() || 'School of Computer Engineering',
+    department: cleanDepartment,
     role: 'teacher',
+    passwordHash: await hashPassword(cleanEmail, password),
   };
-
-  teachers.push(newTeacher);
-  saveRegisteredTeachers(teachers);
-  setTeacherSession(newTeacher);
-
-  return { success: true, teacher: newTeacher };
+  saveDemoAccounts([...accounts, account]);
+  const teacher = stripPassword(account);
+  cacheTeacherSession(teacher);
+  return { success: true, teacher };
 }
 
-/**
- * Log out teacher session.
- */
-export function logoutTeacher(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.removeItem(TEACHER_SESSION_KEY);
-  } catch {}
+export async function logoutTeacher(): Promise<void> {
+  cacheTeacherSession(null);
+  await getSupabase()?.auth.signOut();
 }

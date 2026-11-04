@@ -1,12 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { classifyError } from '@/lib/classifier';
+import { createRateLimiter, getClientIp } from '@/lib/rateLimit';
 
-// Judge0 CE API — default to official free public instance (zero credit card, zero API key required)
-const JUDGE0_API = process.env.JUDGE0_API_URL || 'https://ce.judge0.com';
+// Judge0 CE — defaults to the free public instance (no key required).
+const JUDGE0_API = (process.env.JUDGE0_API_URL || 'https://ce.judge0.com').replace(/\/+$/, '');
 const JUDGE0_KEY = process.env.JUDGE0_API_KEY || '';
 
-// Detect if we're on Vercel (no local compilers available)
-const IS_VERCEL = process.env.VERCEL === '1' || process.env.VERCEL_ENV !== undefined;
+// Running student code directly on the host is only safe on a developer's own machine.
+// It must be explicitly opted into and is never enabled in production builds.
+const ALLOW_LOCAL_EXEC =
+  process.env.LABSYNC_LOCAL_EXEC === 'true' && process.env.NODE_ENV !== 'production';
+
+const MAX_CODE_BYTES = 64 * 1024;
+const MAX_STDIN_BYTES = 16 * 1024;
+const JUDGE0_TIMEOUT_MS = 20_000;
+
+// Judge0 language ids → source filename used for local execution
+const SUPPORTED_LANGUAGES: Record<number, string> = {
+  71: 'main.py',
+  63: 'main.js',
+  50: 'main.c',
+  54: 'main.cpp',
+  62: 'Main.java',
+};
 
 export interface ExecutionResult {
   stdout: string | null;
@@ -18,151 +34,104 @@ export interface ExecutionResult {
   is_missing_input?: boolean;
 }
 
-// ─── Local execution (dev only, not on Vercel) ───
+const isRateLimited = createRateLimiter(30, 60_000);
+
+// ─── Local execution (developer machines only, opt-in via LABSYNC_LOCAL_EXEC) ───
 async function executeLocal(code: string, languageId: number, stdin: string): Promise<ExecutionResult> {
-  const { execSync } = await import('child_process');
-  const { writeFileSync, mkdirSync, rmSync } = await import('fs');
+  const { execFileSync } = await import('child_process');
+  const { mkdtempSync, writeFileSync, rmSync } = await import('fs');
+  const { tmpdir } = await import('os');
 
-  const runId = Math.random().toString(36).substring(2, 9);
-  const tmpDir = `/tmp/labsync_${runId}`;
-  mkdirSync(tmpDir, { recursive: true });
-
-  const langFileMap: Record<number, string> = {
-    71: 'main.py',
-    63: 'main.js',
-    50: 'main.c',
-    54: 'main.cpp',
-    62: 'Main.java',
-  };
-
-  const filename = langFileMap[languageId];
-  if (!filename) {
-    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-    throw new Error(`Language ID ${languageId} not supported in local mode`);
-  }
-
-  const filePath = `${tmpDir}/${filename}`;
+  const tmpDir = mkdtempSync(`${tmpdir()}/labsync-`);
+  const filePath = `${tmpDir}/${SUPPORTED_LANGUAGES[languageId]}`;
+  const binPath = `${tmpDir}/a.out`;
   writeFileSync(filePath, code);
 
-  let compileCmd: string | null = null;
-  let runCmd: string = '';
-
-  if (languageId === 50) {
-    compileCmd = `gcc -O2 -o ${tmpDir}/a.out ${tmpDir}/main.c`;
-    runCmd = `${tmpDir}/a.out`;
-  } else if (languageId === 54) {
-    compileCmd = `g++ -O2 -o ${tmpDir}/a.out ${tmpDir}/main.cpp`;
-    runCmd = `${tmpDir}/a.out`;
-  } else if (languageId === 62) {
-    compileCmd = `javac ${tmpDir}/Main.java`;
-    runCmd = `java -cp ${tmpDir} Main`;
-  } else if (languageId === 71) {
-    runCmd = `python3 ${tmpDir}/main.py`;
-  } else if (languageId === 63) {
-    runCmd = `node ${tmpDir}/main.js`;
+  let compile: [string, string[]] | null = null;
+  let run: [string, string[]];
+  switch (languageId) {
+    case 50:
+      compile = ['gcc', ['-O2', '-o', binPath, filePath]];
+      run = [binPath, []];
+      break;
+    case 54:
+      compile = ['g++', ['-O2', '-o', binPath, filePath]];
+      run = [binPath, []];
+      break;
+    case 62:
+      compile = ['javac', [filePath]];
+      run = ['java', ['-cp', tmpDir, 'Main']];
+      break;
+    case 71:
+      run = ['python3', [filePath]];
+      break;
+    default:
+      run = ['node', [filePath]];
   }
-
-  // 1. Compile step (if applicable)
-  if (compileCmd) {
-    try {
-      execSync(compileCmd, {
-        timeout: 10000,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    } catch (compileErr: unknown) {
-      const err = compileErr as { stderr?: string; stdout?: string };
-      try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-      return {
-        stdout: null,
-        stderr: null,
-        compile_output: err.stderr || err.stdout || 'Compilation failed',
-        status: { id: 6, description: 'Compilation Error' },
-        time: null,
-        memory: null,
-        is_missing_input: false,
-      };
-    }
-  }
-
-  // 2. Execution step
-  const startTime = Date.now();
 
   try {
-    const result = execSync(runCmd, {
-      timeout: 10000,
-      encoding: 'utf-8',
-      input: stdin !== undefined ? stdin : '',
-      maxBuffer: 1024 * 1024,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(3);
-
-    return {
-      stdout: result || null,
-      stderr: null,
-      compile_output: null,
-      status: { id: 3, description: 'Accepted' },
-      time: elapsed,
-      memory: null,
-      is_missing_input: false,
-    };
-  } catch (error: unknown) {
-    const execError = error as { stderr?: string; stdout?: string; status?: number; message?: string };
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(3);
-    const isTimeout = execError.message?.includes('TIMEOUT');
-
-    // Check if error is because the program is waiting for more interactive stdin input
-    const isEofWaiting =
-      Boolean(execError.stderr?.includes('ios_base::failure') ||
-      execError.stderr?.includes('iostream_category error') ||
-      execError.stderr?.includes('[LabSync:WAITING_INPUT]') ||
-      execError.stderr?.includes('EOFError') ||
-      execError.stderr?.includes('NoSuchElementException'));
-
-    if (isEofWaiting) {
-      return {
-        stdout: execError.stdout || null,
-        stderr: null,
-        compile_output: null,
-        status: { id: 13, description: 'Waiting for Input' },
-        time: elapsed,
-        memory: null,
-        is_missing_input: true,
-      };
+    if (compile) {
+      try {
+        execFileSync(/* turbopackIgnore: true */ compile[0], compile[1], { timeout: 10_000, encoding: 'utf-8', stdio: 'pipe' });
+      } catch (compileErr: unknown) {
+        const err = compileErr as { stderr?: string; stdout?: string };
+        return {
+          stdout: null,
+          stderr: null,
+          compile_output: err.stderr || err.stdout || 'Compilation failed',
+          status: { id: 6, description: 'Compilation Error' },
+          time: null,
+          memory: null,
+        };
+      }
     }
 
-    return {
-      stdout: execError.stdout || null,
-      stderr: isTimeout
-        ? 'Time Limit Exceeded: The program took more than 10 seconds. If your program reads user input (input(), cin, scanf()), make sure to provide standard input in the Stdin tab or terminal prompt.'
-        : execError.stderr || execError.message || 'Execution failed',
-      compile_output: null,
-      status: {
-        id: isTimeout ? 5 : 11,
-        description: isTimeout ? 'Time Limit Exceeded' : 'Runtime Error',
-      },
-      time: null,
-      memory: null,
-      is_missing_input: false,
-    };
+    const startTime = Date.now();
+    try {
+      const stdout = execFileSync(/* turbopackIgnore: true */ run[0], run[1], {
+        timeout: 10_000,
+        encoding: 'utf-8',
+        input: stdin,
+        maxBuffer: 1024 * 1024,
+        stdio: 'pipe',
+        cwd: tmpDir,
+      });
+      return {
+        stdout: stdout || null,
+        stderr: null,
+        compile_output: null,
+        status: { id: 3, description: 'Accepted' },
+        time: ((Date.now() - startTime) / 1000).toFixed(3),
+        memory: null,
+      };
+    } catch (error: unknown) {
+      const execError = error as { stderr?: string; stdout?: string; signal?: string; code?: string };
+      const isTimeout = execError.signal === 'SIGTERM' || execError.code === 'ETIMEDOUT';
+      return {
+        stdout: execError.stdout || null,
+        stderr: isTimeout
+          ? 'Time Limit Exceeded: the program ran for more than 10 seconds.'
+          : execError.stderr || 'Execution failed',
+        compile_output: null,
+        status: isTimeout
+          ? { id: 5, description: 'Time Limit Exceeded' }
+          : { id: 11, description: 'Runtime Error' },
+        time: null,
+        memory: null,
+      };
+    }
   } finally {
     try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }
 }
 
-// ─── Judge0 API execution (100% Free Public Instance) ───
+// ─── Judge0 execution ───
 async function executeWithJudge0(code: string, languageId: number, stdin: string): Promise<ExecutionResult> {
-  const isRapidApi = JUDGE0_API.includes('rapidapi.com');
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (JUDGE0_KEY) {
-    if (isRapidApi) {
+    if (JUDGE0_API.includes('rapidapi.com')) {
       headers['X-RapidAPI-Key'] = JUDGE0_KEY;
-      headers['X-RapidAPI-Host'] = 'judge0-ce.p.rapidapi.com';
+      headers['X-RapidAPI-Host'] = new URL(JUDGE0_API).host;
     } else {
       headers['X-Auth-Token'] = JUDGE0_KEY;
     }
@@ -171,6 +140,7 @@ async function executeWithJudge0(code: string, languageId: number, stdin: string
   const submitRes = await fetch(`${JUDGE0_API}/submissions?base64_encoded=true&wait=true`, {
     method: 'POST',
     headers,
+    signal: AbortSignal.timeout(JUDGE0_TIMEOUT_MS),
     body: JSON.stringify({
       source_code: Buffer.from(code).toString('base64'),
       language_id: languageId,
@@ -181,11 +151,10 @@ async function executeWithJudge0(code: string, languageId: number, stdin: string
   });
 
   if (!submitRes.ok) {
-    throw new Error(`Judge0 API error: ${submitRes.status} ${submitRes.statusText}`);
+    throw new Error(`Judge0 responded with ${submitRes.status} ${submitRes.statusText}`);
   }
 
   const result = await submitRes.json();
-
   const decode = (s: string | null) => (s ? Buffer.from(s, 'base64').toString('utf-8') : null);
 
   return {
@@ -195,258 +164,103 @@ async function executeWithJudge0(code: string, languageId: number, stdin: string
     status: result.status,
     time: result.time,
     memory: result.memory,
-    is_missing_input: false,
-  };
-}
-
-// ─── Sandboxed JS execution (works on Vercel — no external deps) ───
-function executeJavaScriptSandboxed(code: string, stdin: string): {
-  stdout: string | null;
-  stderr: string | null;
-  compile_output: string | null;
-  status: { id: number; description: string };
-  time: string | null;
-  memory: number | null;
-} {
-  const startTime = Date.now();
-  const capturedOutput: string[] = [];
-
-  try {
-    // Build a sandboxed function with captured console.log
-    const wrappedCode = `
-      const __output = [];
-      const console = {
-        log: (...args) => __output.push(args.map(String).join(' ')),
-        error: (...args) => __output.push('ERROR: ' + args.map(String).join(' ')),
-        warn: (...args) => __output.push('WARN: ' + args.map(String).join(' ')),
-      };
-      const __input = ${JSON.stringify(stdin)};
-      const readline = () => __input;
-      const prompt = () => __input;
-
-      ${code}
-
-      __output;
-    `;
-
-    const fn = new Function(wrappedCode);
-    const output = fn();
-    capturedOutput.push(...(output || []));
-
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(3);
-
-    return {
-      stdout: capturedOutput.join('\n') || null,
-      stderr: null,
-      compile_output: null,
-      status: { id: 3, description: 'Accepted' },
-      time: elapsed,
-      memory: null,
-    };
-  } catch (error: unknown) {
-    const err = error as Error;
-    return {
-      stdout: capturedOutput.length > 0 ? capturedOutput.join('\n') : null,
-      stderr: err.message || 'Execution failed',
-      compile_output: null,
-      status: { id: 11, description: 'Runtime Error' },
-      time: ((Date.now() - startTime) / 1000).toFixed(3),
-      memory: null,
-    };
-  }
-}
-
-// ─── Python mock (simulates basic Python on Vercel without interpreter) ───
-function executePythonMock(code: string): {
-  stdout: string | null;
-  stderr: string | null;
-  compile_output: string | null;
-  status: { id: number; description: string };
-  time: string | null;
-  memory: number | null;
-} {
-  // Extract print statements for basic simulation
-  const printRegex = /print\s*\(\s*(?:f?['"](.+?)['"]|(.+?))\s*\)/g;
-  const outputs: string[] = [];
-  let match;
-
-  // Basic syntax check
-  const hasSyntaxError =
-    code.includes('def ') && !code.includes(':') ? 'SyntaxError: expected ":"' : null;
-
-  if (hasSyntaxError) {
-    return {
-      stdout: null,
-      stderr: hasSyntaxError,
-      compile_output: null,
-      status: { id: 11, description: 'Runtime Error' },
-      time: '0.001',
-      memory: null,
-    };
-  }
-
-  while ((match = printRegex.exec(code)) !== null) {
-    const content = match[1] || match[2];
-    if (content) {
-      // Handle basic f-strings and string literals
-      let output = content;
-      // Try to evaluate simple expressions
-      try {
-        if (/^\d+\s*[+\-*/]\s*\d+$/.test(output.trim())) {
-          output = String(eval(output));
-        }
-      } catch { /* keep original */ }
-      outputs.push(output);
-    }
-  }
-
-  // If no print found, try eval-ing a simple expression
-  if (outputs.length === 0 && code.trim().split('\n').length === 1) {
-    try {
-      const result = eval(code.trim());
-      if (result !== undefined) outputs.push(String(result));
-    } catch { /* ignore */ }
-  }
-
-  // Fallback message for complex Python code
-  if (outputs.length === 0 && code.includes('def ')) {
-    return {
-      stdout: '[Demo Mode] Python execution requires Judge0 API configuration.\nSet JUDGE0_API_KEY in your environment variables for full execution.\n\nYour code compiled without visible syntax errors.',
-      stderr: null,
-      compile_output: null,
-      status: { id: 3, description: 'Accepted' },
-      time: '0.001',
-      memory: null,
-    };
-  }
-
-  return {
-    stdout: outputs.length > 0 ? outputs.join('\n') : '[Demo Mode] No output produced. Configure JUDGE0_API_KEY for full execution.',
-    stderr: null,
-    compile_output: null,
-    status: { id: 3, description: 'Accepted' },
-    time: '0.001',
-    memory: null,
   };
 }
 
 /**
- * Automatically handle entrypoint wrapping for student code.
- * If Python code defines `def main():` and doesn't explicitly invoke it or have an entrypoint guard,
- * automatically appends `if __name__ == "__main__": main()` behind the scenes at execution time.
+ * Wraps student code so common lab patterns behave as expected:
+ * - Python files that define `main()` without calling it get an entrypoint guard.
+ * - C/C++ programs reading from an exhausted stdin report "waiting for input" instead of
+ *   silently looping on EOF, so the terminal can prompt the student for more input.
  */
 function prepareExecutableCode(code: string, languageId: number): string {
-  // Python 3 (id: 71)
   if (languageId === 71) {
     const hasMainDef = /^\s*(def|async\s+def)\s+main\s*\(/m.test(code);
-    const hasEntrypoint =
-      /__name__\s*==\s*['"]__main__['"]/.test(code) ||
-      /^\s*main\s*\(/m.test(code);
-
+    const hasEntrypoint = /__name__\s*==\s*['"]__main__['"]/.test(code) || /^main\s*\(/m.test(code);
     if (hasMainDef && !hasEntrypoint) {
       return `${code}\n\nif __name__ == "__main__":\n    main()\n`;
     }
   }
 
-  // C++ (id: 54): Guard against silent EOF failure when interactive input is needed
   if (languageId === 54 && code.includes('cin')) {
     const cinGuard = `#include <iostream>\nstruct __LabSyncCinGuard { __LabSyncCinGuard() { std::cin.exceptions(std::ios_base::eofbit); } };\nstatic __LabSyncCinGuard __labsync_cin_guard;\n`;
     return `${cinGuard}\n${code}`;
   }
 
-  // C (id: 50): Guard against silent EOF failure on scanf
   if (languageId === 50 && code.includes('scanf')) {
-    const scanfGuard = `#include <stdio.h>\n#include <stdlib.h>\n#define scanf(...) (scanf(__VA_ARGS__) == EOF ? (fprintf(stderr, "[LabSync:WAITING_INPUT]\\n"), exit(42), EOF) : 0)\n`;
+    // Preserves scanf's return value so checks like `scanf(...) == 1` keep working.
+    const scanfGuard = `#include <stdio.h>\n#include <stdlib.h>\nstatic int __labsync_scanf_check(int r) { if (r == EOF) { fprintf(stderr, "[LabSync:WAITING_INPUT]\\n"); exit(42); } return r; }\n#define scanf(...) __labsync_scanf_check(scanf(__VA_ARGS__))\n`;
     return `${scanfGuard}\n${code}`;
   }
 
   return code;
 }
 
+const WAITING_FOR_INPUT_MARKERS = [
+  'ios_base::failure',
+  'iostream_category',
+  '[LabSync:WAITING_INPUT]',
+  'EOFError',
+  'NoSuchElementException',
+];
+
+function errorResponse(message: string, status: number) {
+  return NextResponse.json({ error: message }, { status });
+}
+
 export async function POST(request: NextRequest) {
+  if (isRateLimited(getClientIp(request.headers))) {
+    return errorResponse('Too many runs in a short time. Wait a few seconds and try again.', 429);
+  }
+
+  let body: { code?: unknown; languageId?: unknown; stdin?: unknown };
   try {
-    const { code: rawCode, languageId, stdin = '' } = await request.json();
+    body = await request.json();
+  } catch {
+    return errorResponse('Request body must be JSON.', 400);
+  }
 
-    if (!rawCode || !languageId) {
-      return NextResponse.json(
-        { error: 'Missing required fields: code, languageId' },
-        { status: 400 }
-      );
-    }
+  const { code: rawCode, languageId, stdin = '' } = body;
+  if (typeof rawCode !== 'string' || !rawCode.trim()) {
+    return errorResponse('There is no code to run.', 400);
+  }
+  if (typeof languageId !== 'number' || !(languageId in SUPPORTED_LANGUAGES)) {
+    return errorResponse('Unsupported language.', 400);
+  }
+  if (typeof stdin !== 'string') {
+    return errorResponse('stdin must be a string.', 400);
+  }
+  if (Buffer.byteLength(rawCode) > MAX_CODE_BYTES) {
+    return errorResponse(`Code is too large (limit ${MAX_CODE_BYTES / 1024} KB).`, 413);
+  }
+  if (Buffer.byteLength(stdin) > MAX_STDIN_BYTES) {
+    return errorResponse(`Input is too large (limit ${MAX_STDIN_BYTES / 1024} KB).`, 413);
+  }
 
-    const code = prepareExecutableCode(rawCode, languageId);
+  const code = prepareExecutableCode(rawCode, languageId);
 
-    let result: ExecutionResult | null = null;
-
-    // 1. If running locally on Mac/dev and local compiler is available, use local execution for speed
-    if (!IS_VERCEL && !JUDGE0_KEY) {
-      try {
-        result = await executeLocal(code, languageId, stdin);
-      } catch {
-        result = null;
-      }
-    }
-
-    // 2. Execute via Judge0 CE (ce.judge0.com is 100% free, no credit card or key required)
-    if (!result) {
-      try {
-        result = await executeWithJudge0(code, languageId, stdin);
-      } catch (judgeErr) {
-        console.warn('Judge0 execution failed or offline, falling back:', judgeErr);
-      }
-    }
-
-    // 3. Fallback if Judge0 is unreachable:
-    if (!result) {
-      if (languageId === 63) {
-        result = executeJavaScriptSandboxed(code, stdin);
-      } else if (languageId === 71) {
-        result = executePythonMock(code);
-      } else {
-        result = {
-          stdout: `[Offline Mode] Code execution service is temporarily unreachable.\nPlease try running again in a few moments.`,
-          stderr: null,
-          compile_output: null,
-          status: { id: 3, description: 'Accepted' },
-          time: '0.001',
-          memory: null,
-        };
-      }
-    }
-
-    // Standardize EOF / interactive waiting across all execution backends
-    if (result && result.stderr) {
-      const isEofWaiting = Boolean(
-        result.stderr.includes('ios_base::failure') ||
-        result.stderr.includes('iostream_category') ||
-        result.stderr.includes('[LabSync:WAITING_INPUT]') ||
-        result.stderr.includes('EOFError') ||
-        result.stderr.includes('NoSuchElementException')
-      );
-      if (isEofWaiting) {
-        result.status = { id: 13, description: 'Waiting for Input' };
-        result.is_missing_input = true;
-        result.stderr = null;
-      }
-    }
-
-    // Classify the error
-    const classification = classifyError(
-      result.stderr,
-      result.compile_output,
-      result.status.description
-    );
-
-    return NextResponse.json({
-      ...result,
-      classification,
-    });
-  } catch (error: unknown) {
-    const err = error as Error;
-    console.error('Execution error:', err);
-    return NextResponse.json(
-      { error: err.message || 'Internal server error' },
-      { status: 500 }
+  let result: ExecutionResult;
+  try {
+    result = ALLOW_LOCAL_EXEC
+      ? await executeLocal(code, languageId, stdin)
+      : await executeWithJudge0(code, languageId, stdin);
+  } catch (err) {
+    console.error('Code execution failed:', err);
+    const timedOut = err instanceof Error && err.name === 'TimeoutError';
+    return errorResponse(
+      timedOut
+        ? 'The code execution service took too long to respond. Please try again.'
+        : 'The code execution service is unreachable right now. Please try again in a moment.',
+      503
     );
   }
+
+  if (result.stderr && WAITING_FOR_INPUT_MARKERS.some((m) => result.stderr!.includes(m))) {
+    result.status = { id: 13, description: 'Waiting for Input' };
+    result.is_missing_input = true;
+    result.stderr = null;
+  }
+
+  const classification = classifyError(result.stderr, result.compile_output, result.status.description);
+  return NextResponse.json({ ...result, classification });
 }

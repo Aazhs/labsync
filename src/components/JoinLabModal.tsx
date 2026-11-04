@@ -43,7 +43,10 @@ export default function JoinLabModal({ isOpen, onClose, initialCode = '' }: Join
     setIsVerifyingCode(true);
     try {
       const lobby = await getLobbyByCode(code);
-      if (lobby) {
+      if (lobby?.status === 'completed') {
+        setVerifiedLobby(null);
+        setError('This lab session has already ended.');
+      } else if (lobby) {
         setVerifiedLobby(lobby);
         setError(null);
       } else {
@@ -63,13 +66,18 @@ export default function JoinLabModal({ isOpen, onClose, initialCode = '' }: Join
       let isSubscribed = true;
       getLobbyByCode(initialCode).then((lobby) => {
         if (!isSubscribed) return;
-        if (lobby) {
+        if (lobby?.status === 'completed') {
+          setVerifiedLobby(null);
+          setError('This lab session has already ended.');
+        } else if (lobby) {
           setVerifiedLobby(lobby);
           setError(null);
         } else {
           setVerifiedLobby(null);
-          setError(`No active lab found with code "${initialCode}".`);
+          setError(`No lab found with code "${initialCode}".`);
         }
+      }).catch(() => {
+        if (isSubscribed) setError('Could not reach the lab server. Check your connection.');
       });
       return () => {
         isSubscribed = false;
@@ -191,16 +199,9 @@ export default function JoinLabModal({ isOpen, onClose, initialCode = '' }: Join
     setError(null);
 
     try {
-      const res = await joinLobby(code, studentName.trim(), studentPrn.trim());
-      if (!res.success) {
-        setError(res.error || 'Failed to join lab.');
-        setLoading(false);
-        return;
-      }
-
+      await joinLobby(code, studentName.trim(), studentPrn.trim());
       onClose();
-      // Redirect student into IDE with their active room session
-      router.push(`/ide?room=${code}&student=${encodeURIComponent(studentName.trim())}&prn=${encodeURIComponent(studentPrn.trim())}`);
+      router.push(`/ide?room=${code}`);
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'An unexpected error occurred';
       setError(errorMsg);

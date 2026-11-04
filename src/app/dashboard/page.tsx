@@ -29,16 +29,19 @@ import {
   GraduationCap,
 } from 'lucide-react';
 import {
-  listActiveLobbies,
+  listTeacherLobbies,
   getLobbyStudents,
   subscribeToLobbyUpdates,
   updateLobbyBroadcast,
   updateLobbyStatus,
+  effectiveStudentStatus,
+  isDemoMode,
   LabLobby,
   LabStudent,
+  StudentStatus,
 } from '@/lib/lobbyService';
 import {
-  getTeacherSession,
+  restoreTeacherSession,
   logoutTeacher,
   TeacherUser,
 } from '@/lib/teacherAuth';
@@ -47,14 +50,33 @@ import TeacherAuthModal from '@/components/TeacherAuthModal';
 
 const emptySubscribe = () => () => {};
 
+// Sort order for the roster: students who need attention first.
+const STATUS_PRIORITY: Record<StudentStatus, number> = {
+  needs_help: 0,
+  stuck: 1,
+  coding: 2,
+  active: 2,
+  idle: 3,
+  completed: 4,
+};
+
+function upsertStudent(list: LabStudent[], student: LabStudent, deleted?: boolean): LabStudent[] {
+  const without = list.filter((s) => s.id !== student.id);
+  if (deleted) return without;
+  const existing = list.find((s) => s.id === student.id);
+  return existing ? list.map((s) => (s.id === student.id ? { ...s, ...student } : s)) : [...without, student];
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
-  const [selectedStudent, setSelectedStudent] = useState<LabStudent | null>(null);
-  const [time, setTime] = useState(new Date());
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [time, setTime] = useState(() => new Date());
+  const [error, setError] = useState<string | null>(null);
 
   // Teacher Auth State
   const [teacher, setTeacher] = useState<TeacherUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
@@ -73,31 +95,42 @@ export default function DashboardPage() {
   const [isSavingBroadcast, setIsSavingBroadcast] = useState(false);
   const [broadcastSuccessNotice, setBroadcastSuccessNotice] = useState(false);
 
-  // Clock & Teacher Auth Init
+  const reportError = (err: unknown, fallback: string) => {
+    setError(err instanceof Error ? err.message : fallback);
+  };
+
+  // Clock (also drives idle detection)
   useEffect(() => {
     const interval = setInterval(() => setTime(new Date()), 1000);
-    const session = getTeacherSession();
-    setTeacher(session);
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch active lobbies on load
+  // Verify the teacher session, then load their labs
   useEffect(() => {
-    let isSubscribed = true;
-    listActiveLobbies().then((list) => {
-      if (isSubscribed) {
+    let cancelled = false;
+    restoreTeacherSession()
+      .then(async (t) => {
+        if (cancelled) return;
+        setTeacher(t);
+        setAuthChecked(true);
+        if (!t) return;
+        const list = await listTeacherLobbies(t);
+        if (cancelled) return;
         setLobbies(list);
-        if (list.length > 0) {
-          setActiveLobby((prev) => prev ?? list[0]);
-        }
-      }
-    });
+        setActiveLobby((prev) => prev ?? list[0] ?? null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setAuthChecked(true);
+        reportError(err, 'Could not load your labs.');
+      });
     return () => {
-      isSubscribed = false;
+      cancelled = true;
     };
   }, []);
 
-  // Sync professor broadcast controls whenever active lobby changes
+  // Sync professor broadcast controls whenever the selected lab changes
+  const activeRoomCode = activeLobby?.room_code;
   useEffect(() => {
     if (!activeLobby) return;
     let isMounted = true;
@@ -110,47 +143,68 @@ export default function DashboardPage() {
     return () => {
       isMounted = false;
     };
-  }, [activeLobby]);
+    // Only reset the editor when switching labs, not on every realtime update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLobby?.id]);
 
   const refreshLobbies = async () => {
-    const list = await listActiveLobbies();
-    setLobbies(list);
-    if (list.length > 0) {
+    if (!teacher) return;
+    try {
+      const list = await listTeacherLobbies(teacher);
+      setLobbies(list);
       setActiveLobby((prev) => {
-        if (!prev) return list[0];
-        const match = list.find((l) => l.room_code === prev.room_code);
-        return match ?? list[0];
+        if (!prev) return list[0] ?? null;
+        return list.find((l) => l.room_code === prev.room_code) ?? prev;
       });
+    } catch (err) {
+      reportError(err, 'Could not load your labs.');
     }
+  };
+
+  const applyLobbyUpdate = (updated: LabLobby) => {
+    setActiveLobby((prev) => (prev && prev.id === updated.id ? updated : prev));
+    setLobbies((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
   };
 
   const handleStatusChange = async (newStatus: 'active' | 'paused' | 'completed') => {
     if (!activeLobby || isUpdatingStatus) return;
     setIsUpdatingStatus(true);
     try {
-      await updateLobbyStatus(activeLobby.room_code, newStatus);
-      setActiveLobby((prev) => (prev ? { ...prev, status: newStatus } : null));
-      setLobbies((prev) =>
-        prev.map((l) => (l.room_code === activeLobby.room_code ? { ...l, status: newStatus } : l))
-      );
+      applyLobbyUpdate(await updateLobbyStatus(activeLobby.room_code, newStatus));
     } catch (err) {
-      console.error('Failed to change lab status:', err);
+      reportError(err, 'Could not change the lab status.');
     } finally {
       setIsUpdatingStatus(false);
     }
   };
 
-  // Realtime subscription to students and room changes
+  // Student roster: initial load, then merge realtime changes
   useEffect(() => {
-    if (!activeLobby) return;
-    const fetchStudentsAndLobby = async () => {
-      const studs = await getLobbyStudents(activeLobby.room_code);
-      setRealStudents(studs);
+    if (!activeRoomCode) return;
+    let cancelled = false;
+    const fetchStudents = async () => {
+      try {
+        const studs = await getLobbyStudents(activeRoomCode);
+        if (!cancelled) setRealStudents(studs);
+      } catch (err) {
+        if (!cancelled) reportError(err, 'Could not load students.');
+      }
     };
-    fetchStudentsAndLobby();
-    const unsub = subscribeToLobbyUpdates(activeLobby.room_code, fetchStudentsAndLobby);
-    return () => unsub();
-  }, [activeLobby]);
+    fetchStudents();
+    const unsub = subscribeToLobbyUpdates(activeRoomCode, (change) => {
+      if (change.table === 'lab_students') {
+        setRealStudents((prev) => upsertStudent(prev, change.student, change.deleted));
+      } else if (change.table === 'lab_lobbies') {
+        applyLobbyUpdate(change.lobby);
+      } else {
+        fetchStudents();
+      }
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [activeRoomCode]);
 
   const copyRoomCode = () => {
     if (!activeLobby) return;
@@ -167,49 +221,53 @@ export default function DashboardPage() {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  // Handle broadcast updates
-  const handleToggleFollowMode = async () => {
-    if (!activeLobby) return;
-    const nextFollow = !followMode;
-    setFollowMode(nextFollow);
-    await updateLobbyBroadcast(activeLobby.room_code, {
-      follow_mode: nextFollow,
-    });
-    await refreshLobbies();
-  };
-
-  const handleToggleViewingPermission = async () => {
-    if (!activeLobby) return;
-    const nextEnabled = !broadcastEnabled;
-    setBroadcastEnabled(nextEnabled);
-    await updateLobbyBroadcast(activeLobby.room_code, {
-      broadcast_enabled: nextEnabled,
-    });
-    await refreshLobbies();
-  };
-
-  const handleBroadcastCodeSubmit = async () => {
-    if (!activeLobby) return;
-    setIsSavingBroadcast(true);
+  const saveBroadcast = async (updates: Parameters<typeof updateLobbyBroadcast>[1]) => {
+    if (!activeLobby) return false;
     try {
-      await updateLobbyBroadcast(activeLobby.room_code, {
-        broadcast_code: broadcastCode,
-        broadcast_enabled: broadcastEnabled,
-        follow_mode: followMode,
-      });
-      setBroadcastSuccessNotice(true);
-      setTimeout(() => setBroadcastSuccessNotice(false), 2500);
-      await refreshLobbies();
-    } finally {
-      setIsSavingBroadcast(false);
+      applyLobbyUpdate(await updateLobbyBroadcast(activeLobby.room_code, updates));
+      return true;
+    } catch (err) {
+      reportError(err, 'Could not update the broadcast.');
+      return false;
     }
   };
 
-  // Real statistics derived strictly from real students
-  const needsHelp = realStudents.filter((s) => s.status === 'needs_help');
-  const stuck = realStudents.filter((s) => s.status === 'stuck');
-  const coding = realStudents.filter((s) => s.status === 'coding' || s.status === 'active');
-  const idle = realStudents.filter((s) => s.status === 'idle');
+  const handleToggleFollowMode = async () => {
+    const nextFollow = !followMode;
+    setFollowMode(nextFollow);
+    if (!(await saveBroadcast({ follow_mode: nextFollow }))) setFollowMode(!nextFollow);
+  };
+
+  const handleToggleViewingPermission = async () => {
+    const nextEnabled = !broadcastEnabled;
+    setBroadcastEnabled(nextEnabled);
+    if (!(await saveBroadcast({ broadcast_enabled: nextEnabled }))) setBroadcastEnabled(!nextEnabled);
+  };
+
+  const handleBroadcastCodeSubmit = async () => {
+    setIsSavingBroadcast(true);
+    const ok = await saveBroadcast({
+      broadcast_code: broadcastCode,
+      broadcast_enabled: broadcastEnabled,
+      follow_mode: followMode,
+    });
+    setIsSavingBroadcast(false);
+    if (ok) {
+      setBroadcastSuccessNotice(true);
+      setTimeout(() => setBroadcastSuccessNotice(false), 2500);
+    }
+  };
+
+  // Statistics derived from real students, with idle detection
+  const now = time.getTime();
+  const studentsWithStatus = realStudents
+    .map((s) => ({ ...s, status: effectiveStudentStatus(s, now) }))
+    .sort((a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status] || a.student_name.localeCompare(b.student_name));
+  const needsHelp = studentsWithStatus.filter((s) => s.status === 'needs_help');
+  const stuck = studentsWithStatus.filter((s) => s.status === 'stuck');
+  const coding = studentsWithStatus.filter((s) => s.status === 'coding' || s.status === 'active');
+  const completed = studentsWithStatus.filter((s) => s.status === 'completed');
+  const selectedStudent = studentsWithStatus.find((s) => s.id === selectedStudentId) ?? null;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -220,6 +278,51 @@ export default function DashboardPage() {
       default: return 'var(--text-tertiary)';
     }
   };
+
+  if (!authChecked) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)', color: 'var(--text-tertiary)', fontSize: 13 }}>
+        <div className="loading-spinner" style={{ marginRight: 8 }} />
+        Loading dashboard…
+      </div>
+    );
+  }
+
+  if (!teacher) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)', padding: 16 }}>
+        <div style={{ maxWidth: 400, width: '100%', padding: 24, borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', textAlign: 'center' }}>
+          <h1 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>Instructor sign-in required</h1>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 20 }}>
+            The dashboard shows your labs and students. Sign in with your institutional account to continue.
+          </p>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+            <button className="btn btn-ghost" onClick={() => router.push('/')} style={{ height: 32, fontSize: 12, padding: '0 14px' }}>
+              Home
+            </button>
+            <button className="btn btn-primary" onClick={() => setShowAuthModal(true)} style={{ height: 32, fontSize: 12, padding: '0 14px', gap: 6 }}>
+              <ShieldCheck size={13} />
+              Sign in
+            </button>
+          </div>
+        </div>
+        <TeacherAuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={(t) => {
+            setShowAuthModal(false);
+            setTeacher(t);
+            listTeacherLobbies(t)
+              .then((list) => {
+                setLobbies(list);
+                setActiveLobby(list[0] ?? null);
+              })
+              .catch((err) => reportError(err, 'Could not load your labs.'));
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -334,9 +437,8 @@ export default function DashboardPage() {
               </div>
               <button
                 className="btn btn-ghost"
-                onClick={() => {
-                  logoutTeacher();
-                  setTeacher(null);
+                onClick={async () => {
+                  await logoutTeacher();
                   router.push('/login');
                 }}
                 style={{ height: 28, fontSize: 11, padding: '0 8px', gap: 4, borderRadius: 4 }}
@@ -577,6 +679,35 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {error && (
+        <div role="alert" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 24px', fontSize: 12, background: 'rgba(224, 74, 59, 0.12)', borderBottom: '1px solid rgba(224, 74, 59, 0.3)', color: 'var(--accent-danger)' }}>
+          <span>{error}</span>
+          <button className="btn btn-ghost" onClick={() => setError(null)} style={{ height: 22, fontSize: 11, padding: '0 8px' }}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {isDemoMode && (
+        <div style={{ padding: '6px 24px', fontSize: 12, background: 'rgba(91, 141, 184, 0.12)', borderBottom: '1px solid rgba(91, 141, 184, 0.3)', color: 'var(--accent-info)' }}>
+          Demo mode — labs and students are stored in this browser only, so students must use this same browser. Configure Supabase (see README) to run real labs.
+        </div>
+      )}
+
+      {!activeLobby && (
+        <div style={{ padding: '48px 24px', textAlign: 'center' }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>No labs yet</h2>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+            Create a lab to get a 6-digit room code your students can join.
+          </p>
+          <button className="btn btn-primary" onClick={() => setShowCreateModal(true)} style={{ height: 34, fontSize: 13, padding: '0 16px', gap: 6 }}>
+            <Plus size={14} />
+            Create your first lab
+          </button>
+        </div>
+      )}
+
+      {activeLobby && (<>
       {/* Mode Banner */}
       <div className={`mode-banner ${followMode ? 'mode-follow' : 'mode-practice'}`}>
         {followMode ? (
@@ -605,10 +736,10 @@ export default function DashboardPage() {
           {/* Stats Row */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
             {[
-              { label: 'Connected Students', value: realStudents.length, icon: <Users size={16} />, color: 'var(--text-primary)' },
-              { label: 'Need Assistance', value: needsHelp.length, icon: <AlertTriangle size={16} />, color: 'var(--accent-danger)' },
-              { label: 'Stuck in Loop / Error', value: stuck.length, icon: <Clock size={16} />, color: 'var(--accent-warning)' },
-              { label: 'Actively Coding', value: coding.length + idle.length, icon: <CheckCircle size={16} />, color: 'var(--accent-success)' },
+              { label: 'Raised Hand', value: needsHelp.length, icon: <AlertTriangle size={16} />, color: 'var(--accent-danger)' },
+              { label: 'Stuck (repeated errors)', value: stuck.length, icon: <Clock size={16} />, color: 'var(--accent-warning)' },
+              { label: 'Coding', value: coding.length, icon: <Code2 size={16} />, color: 'var(--accent-success)' },
+              { label: 'Finished', value: completed.length, icon: <CheckCircle size={16} />, color: 'var(--accent-info)' },
             ].map((stat, i) => (
               <div key={i} className="glass-panel" style={{ padding: '12px 14px', borderRadius: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -624,7 +755,47 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* Professor Code Broadcast & Live Sync Panel */}
+          {selectedStudent ? (
+            <div className="panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <Eye size={15} style={{ color: 'var(--brand-light)' }} />
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{selectedStudent.student_name}&apos;s code</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    {selectedStudent.current_file || ''} • live
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setSelectedStudentId(null)}
+                  style={{ height: 26, fontSize: 11, padding: '0 10px', borderRadius: 4, gap: 4 }}
+                >
+                  <ArrowLeft size={12} />
+                  Back to broadcast
+                </button>
+              </div>
+              {selectedStudent.error_category && (
+                <div style={{ padding: '6px 14px', fontSize: 12, background: 'rgba(224, 74, 59, 0.08)', color: 'var(--accent-danger-light)', borderBottom: '1px solid var(--border)' }}>
+                  <strong>{selectedStudent.error_tier?.toUpperCase()}:</strong> {selectedStudent.error_category}
+                </div>
+              )}
+              <pre style={{
+                flex: 1,
+                margin: 0,
+                padding: 14,
+                overflow: 'auto',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 12.5,
+                lineHeight: 1.6,
+                color: 'var(--text-primary)',
+                background: 'var(--bg-secondary)',
+                whiteSpace: 'pre',
+              }}>
+                {selectedStudent.code_snapshot || '// No code received from this student yet.'}
+              </pre>
+            </div>
+          ) : (
           <div className="panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -769,6 +940,7 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {/* Right: Real Student Queue & Attendance List */}
@@ -854,12 +1026,12 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {realStudents.map((student) => {
-                  const isSelected = selectedStudent?.id === student.id;
+                {studentsWithStatus.map((student) => {
+                  const isSelected = selectedStudentId === student.id;
                   return (
                     <div
                       key={student.id}
-                      onClick={() => setSelectedStudent(student)}
+                      onClick={() => setSelectedStudentId(isSelected ? null : student.id)}
                       style={{
                         padding: '10px 12px',
                         borderRadius: 4,
@@ -983,19 +1155,15 @@ export default function DashboardPage() {
               <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
                 Status: {selectedStudent.status} • {selectedStudent.error_category || 'No active syntax errors reported'}
               </div>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => router.push(`/ide?room=${activeLobby?.room_code}&role=teacher&viewStudent=${encodeURIComponent(selectedStudent.student_name)}`)}
-                style={{ width: '100%', height: 28, fontSize: 11, borderRadius: 4, gap: 5 }}
-              >
-                <Code2 size={13} />
-                Open Student in Teacher IDE
-              </button>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                Last active {new Date(selectedStudent.last_seen_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • their code is shown on the left
+              </div>
             </div>
           )}
         </div>
       </div>
+
+      </>)}
 
       {/* Create Lobby Modal */}
       <CreateLobbyModal

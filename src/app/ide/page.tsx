@@ -2,9 +2,21 @@
 
 import { useCallback, useEffect, useState, useRef, Suspense } from 'react';
 import dynamic from 'next/dynamic';
-import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useIDEStore, LANGUAGES } from '@/lib/store';
-import { getLobbyByCode, subscribeToLobbyUpdates, updateLobbyStatus } from '@/lib/lobbyService';
+import {
+  getLobbyByCode,
+  getStudentSession,
+  isDemoMode,
+  isLobbyOwner,
+  LabLobby,
+  LobbyStatus,
+  subscribeToLobbyUpdates,
+  updateLobbyStatus,
+} from '@/lib/lobbyService';
+import { getTeacherSession } from '@/lib/teacherAuth';
+import { useStudentSync } from '@/lib/useStudentSync';
 import IDEHeader from '@/components/IDEHeader';
 import IDESidebar from '@/components/IDESidebar';
 import FileExplorer from '@/components/FileExplorer';
@@ -12,7 +24,7 @@ import LivePreview from '@/components/LivePreview';
 import StatusBar from '@/components/StatusBar';
 import OutputPanel from '@/components/OutputPanel';
 import AIHintPanel from '@/components/AIHintPanel';
-import { Plus, X, Eye, EyeOff, Radio, Copy, ArrowRight, Lock } from 'lucide-react';
+import { Plus, X, Eye, EyeOff, Radio, Lock, Hand, CheckCircle2, CloudOff } from 'lucide-react';
 import { soundManager } from '@/lib/sound';
 
 // Dynamic import for Monaco (no SSR)
@@ -54,7 +66,6 @@ function IDEPageContent() {
     sessionMode,
     referenceCode,
     broadcastEnabled,
-    setCode,
     setActiveFile,
     closeFileTab,
     createFile,
@@ -67,63 +78,103 @@ function IDEPageContent() {
     setActiveOutputTab,
   } = useIDEStore();
 
+  const router = useRouter();
   const searchParams = useSearchParams();
   const roomCode = searchParams.get('room');
-  const studentName = searchParams.get('student');
-  const prn = searchParams.get('prn');
-  const role = searchParams.get('role');
-  const [lobbyStatus, setLobbyStatus] = useState<'active' | 'paused' | 'completed'>('active');
+  const wantsTeacher = searchParams.get('role') === 'teacher';
+
+  const [lobby, setLobby] = useState<LabLobby | null>(null);
+  const [roomError, setRoomError] = useState<string | null>(null);
+  const [teacher] = useState(() => getTeacherSession());
+  const [studentSession] = useState(() => (roomCode ? getStudentSession(roomCode) : null));
+  const [workspaceReady, setWorkspaceReady] = useState(!roomCode);
+  const wasFollowingRef = useRef(false);
+
+  const isTeacher = Boolean(lobby && wantsTeacher && isLobbyOwner(lobby, teacher));
+  const lobbyStatus: LobbyStatus = lobby?.status ?? 'active';
+  const runLocked = Boolean(roomCode && !isTeacher && lobbyStatus === 'paused');
+  const studentSync = useStudentSync(
+    isTeacher ? null : studentSession,
+    Boolean(lobby) && lobbyStatus !== 'completed'
+  );
+  const reportRun = studentSync.reportRun;
 
   // Queue for rapid consecutive stdin inputs
   const pendingStdinRef = useRef<string | null>(null);
   const runCodeRef = useRef<(customStdin?: unknown) => Promise<void>>(() => Promise.resolve());
+  const abortRef = useRef<AbortController | null>(null);
 
-  // If joined via a specific lobby, sync lobby language, professor broadcast, status, and follow mode
+  // Apply the lab's state: load its code into the workspace once, then keep the
+  // instructor's broadcast, viewing permission and follow mode in sync.
+  const applyLobby = useCallback(
+    (next: LabLobby) => {
+      setLobby(next);
+      const store = useIDEStore.getState();
+      const isOwner = wantsTeacher && isLobbyOwner(next, teacher);
+
+      if (store.workspaceRoom !== next.room_code) {
+        const lang = LANGUAGES.find((l) => l.name === next.language) ?? LANGUAGES[0];
+        const initialCode = isOwner ? next.broadcast_code || next.starter_code : next.starter_code;
+        store.loadWorkspace(lang, initialCode || null, next.room_code);
+      }
+      setWorkspaceReady(true);
+
+      if (isOwner) return;
+      const viewingAllowed = next.broadcast_enabled !== false;
+      const following = Boolean(next.follow_mode) && viewingAllowed;
+      store.setReferenceCode(next.broadcast_code ?? '');
+      store.setBroadcastEnabled(viewingAllowed);
+      store.setSessionMode(following ? 'follow' : 'practice');
+      // Open the split view when follow mode starts, but let students close it afterwards.
+      if (following && !wasFollowingRef.current) store.setShowReferencePane(true);
+      if (!viewingAllowed && wasFollowingRef.current) store.setShowReferencePane(false);
+      wasFollowingRef.current = following;
+    },
+    [teacher, wantsTeacher]
+  );
+
   useEffect(() => {
     if (!roomCode) return;
-    const syncRoom = async () => {
-      const lobby = await getLobbyByCode(roomCode);
-      if (!lobby) return;
-
-      if (lobby.status) {
-        setLobbyStatus(lobby.status);
-      }
-
-      if (lobby.language) {
-        const langObj = LANGUAGES.find((l) => l.name === lobby.language);
-        if (langObj && langObj.id !== useIDEStore.getState().language.id) {
-          useIDEStore.getState().setLanguage(langObj);
-        }
-      }
-
-      // Sync professor broadcast code
-      const profCode = lobby.broadcast_code ?? lobby.starter_code ?? '';
-      useIDEStore.getState().setReferenceCode(profCode);
-
-      // Sync viewing permission
-      const isViewingAllowed = lobby.broadcast_enabled !== false;
-      useIDEStore.getState().setBroadcastEnabled(isViewingAllowed);
-
-      // Auto-open professor code split-screen in Student IDE when broadcast is active or follow mode is ON
-      const isTeacherBroadcasting = Boolean(lobby.broadcast_code && lobby.broadcast_code.trim().length > 0);
-      const shouldAutoOpen = role !== 'teacher' && isViewingAllowed && (lobby.follow_mode || isTeacherBroadcasting);
-      if (shouldAutoOpen) {
-        useIDEStore.getState().setSessionMode('follow');
-        useIDEStore.getState().setShowReferencePane(true);
-      } else if (lobby.follow_mode === false && !isTeacherBroadcasting) {
-        useIDEStore.getState().setSessionMode('practice');
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const next = await getLobbyByCode(roomCode);
+        if (cancelled) return;
+        if (next) applyLobby(next);
+        else setRoomError(`No lab found with code ${roomCode}.`);
+      } catch {
+        if (!cancelled) setRoomError('Could not reach the lab server. Check your connection and reload.');
       }
     };
+    load();
+    const unsubscribe = subscribeToLobbyUpdates(roomCode, (change) => {
+      if (change.table === 'lab_lobbies') applyLobby(change.lobby);
+      else if (change.table === 'unknown') load();
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [roomCode, applyLobby]);
 
-    syncRoom();
-    const unsub = subscribeToLobbyUpdates(roomCode, syncRoom);
-    return () => unsub();
-  }, [roomCode, role]);
+  // Students need to join (name + PRN) before entering a lab.
+  const notOwner = Boolean(lobby && wantsTeacher && !isTeacher);
+  const needsJoin = Boolean(roomCode && lobby && !wantsTeacher && !studentSession);
+  useEffect(() => {
+    if (needsJoin) router.replace(`/join?code=${roomCode}`);
+  }, [needsJoin, roomCode, router]);
 
-  const handleStatusChange = async (nextStatus: 'active' | 'paused' | 'completed') => {
+  const handleStatusChange = async (nextStatus: LobbyStatus) => {
     if (!roomCode) return;
-    setLobbyStatus(nextStatus);
-    await updateLobbyStatus(roomCode, nextStatus);
+    try {
+      setLobby(await updateLobbyStatus(roomCode, nextStatus));
+    } catch (err) {
+      addOutput({
+        type: 'error',
+        content: `✗ Could not change the lab status: ${err instanceof Error ? err.message : 'unknown error'}`,
+        timestamp: Date.now(),
+      });
+    }
   };
 
   // Resizable panel sizes
@@ -141,6 +192,17 @@ function IDEPageContent() {
     const stdinStr = typeof customStdin === 'string' ? customStdin : undefined;
     const isInteractiveInput = stdinStr !== undefined;
     const activeStdin = isInteractiveInput ? stdinStr : '';
+
+    if (runLocked) {
+      setActiveOutputTab('terminal');
+      if (!useIDEStore.getState().showOutput) useIDEStore.getState().toggleOutput();
+      addOutput({
+        type: 'system',
+        content: '⏸ Your instructor has paused the lab. Running code is disabled until they resume it.',
+        timestamp: Date.now(),
+      });
+      return;
+    }
 
     if (isRunning) {
       if (isInteractiveInput) {
@@ -234,9 +296,13 @@ function IDEPageContent() {
       }
     }
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const res = await fetch('/api/execute', {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code: targetCode,
@@ -346,12 +412,15 @@ function IDEPageContent() {
         }
 
         setLastResult(result);
+        reportRun(isSuccess, result.classification);
 
         if (!isSuccess && result.classification?.tier !== 'none') {
           setActiveOutputTab('problems');
         }
       }
     } catch (err) {
+      // Stopped by the user; stopCode already reported it.
+      if (controller.signal.aborted) return;
       addOutput({
         type: 'error',
         content: `✗ Network error: ${err instanceof Error ? err.message : 'Unknown error'}`,
@@ -362,8 +431,9 @@ function IDEPageContent() {
         soundManager.playError();
       }
     } finally {
+      abortRef.current = null;
       setIsRunning(false);
-      if (pendingStdinRef.current !== null) {
+      if (!controller.signal.aborted && pendingStdinRef.current !== null) {
         const nextInput = pendingStdinRef.current;
         pendingStdinRef.current = null;
         setTimeout(() => {
@@ -375,6 +445,8 @@ function IDEPageContent() {
     code,
     language,
     isRunning,
+    runLocked,
+    reportRun,
     files,
     activeFileId,
     setIsRunning,
@@ -386,16 +458,21 @@ function IDEPageContent() {
     setActiveOutputTab,
   ]);
 
-  runCodeRef.current = runCode;
+  useEffect(() => {
+    runCodeRef.current = runCode;
+  }, [runCode]);
 
   const stopCode = useCallback(() => {
+    abortRef.current?.abort();
+    pendingStdinRef.current = null;
     setIsRunning(false);
+    setIsWaitingForInput(false);
     addOutput({
       type: 'system',
       content: '■ Execution stopped',
       timestamp: Date.now(),
     });
-  }, [setIsRunning, addOutput]);
+  }, [setIsRunning, setIsWaitingForInput, addOutput]);
 
   // Listen for custom IDE events from Monaco editor and components
   useEffect(() => {
@@ -569,6 +646,57 @@ function IDEPageContent() {
     createFile(`file${files.length + 1}${ext}`);
   };
 
+  if (roomError || notOwner) {
+    return (
+      <RoomGate
+        title={notOwner ? 'This lab belongs to another instructor' : 'Lab unavailable'}
+        message={
+          notOwner
+            ? 'Sign in with the instructor account that created this lab to manage it.'
+            : roomError!
+        }
+        action={notOwner ? { href: '/login', label: 'Instructor sign in' } : { href: '/join', label: 'Join a different lab' }}
+      />
+    );
+  }
+
+  if (!workspaceReady || needsJoin) {
+    return <LoadingScreen label={needsJoin ? 'Redirecting to join…' : 'Joining lab…'} />;
+  }
+
+  const studentControls =
+    roomCode && !isTeacher && studentSession && lobbyStatus !== 'completed' ? (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 8 }}>
+        {studentSync.syncError && (
+          <span title={studentSync.syncError} style={{ display: 'flex', color: 'var(--accent-warning)' }}>
+            <CloudOff size={14} />
+          </span>
+        )}
+        <button
+          type="button"
+          className={`btn ${studentSync.handRaised ? 'btn-danger' : 'btn-secondary'}`}
+          onClick={studentSync.toggleHandRaised}
+          title={studentSync.handRaised ? 'Lower your hand' : 'Ask your instructor for help'}
+          aria-pressed={studentSync.handRaised}
+          style={{ height: 28, fontSize: 11, padding: '0 10px', gap: 5, borderRadius: 4 }}
+        >
+          <Hand size={12} />
+          {studentSync.handRaised ? 'Help requested' : 'Raise hand'}
+        </button>
+        <button
+          type="button"
+          className={`btn ${studentSync.done ? 'btn-success' : 'btn-ghost'}`}
+          onClick={studentSync.toggleDone}
+          title={studentSync.done ? 'Mark as still working' : 'Tell your instructor you have finished'}
+          aria-pressed={studentSync.done}
+          style={{ height: 28, fontSize: 11, padding: '0 10px', gap: 5, borderRadius: 4 }}
+        >
+          <CheckCircle2 size={12} />
+          {studentSync.done ? 'Done' : 'Mark done'}
+        </button>
+      </div>
+    ) : null;
+
   return (
     <div className="ide-container">
       {/* Header */}
@@ -576,12 +704,30 @@ function IDEPageContent() {
         onRun={() => runCode()}
         onStop={stopCode}
         roomCode={roomCode}
-        studentName={studentName}
-        prn={prn}
-        role={role}
+        studentName={isTeacher ? null : studentSession?.name}
+        prn={isTeacher ? null : studentSession?.prn}
+        role={isTeacher ? 'teacher' : 'student'}
         lobbyStatus={lobbyStatus}
         onStatusChange={handleStatusChange}
+        runLocked={runLocked}
+        initialBroadcast={Boolean(lobby?.follow_mode)}
+        broadcastReady={isTeacher && workspaceReady}
+        extraControls={studentControls}
       />
+
+      <div className="ide-notices">
+      {roomCode && isDemoMode && (
+        <div style={{
+          background: 'rgba(91, 141, 184, 0.12)',
+          borderBottom: '1px solid rgba(91, 141, 184, 0.3)',
+          color: 'var(--accent-info)',
+          padding: '4px 16px',
+          fontSize: 11,
+          textAlign: 'center',
+        }}>
+          Demo mode — lab data is stored in this browser only. Configure Supabase to run labs across devices.
+        </div>
+      )}
 
       {/* Lab Paused / Concluded Notice Banners */}
       {roomCode && lobbyStatus === 'paused' && (
@@ -598,8 +744,10 @@ function IDEPageContent() {
           gap: 8,
           zIndex: 10,
         }}>
-          <span>⏸️ Lab Session Paused by Instructor</span>
-          <span style={{ fontWeight: 400, opacity: 0.85 }}>— Code execution is locked while the instructor presents</span>
+          <span>⏸️ Lab Session Paused</span>
+          <span style={{ fontWeight: 400, opacity: 0.85 }}>
+            {isTeacher ? '— Students cannot run code until you resume the lab' : '— Code execution is locked while the instructor presents'}
+          </span>
         </div>
       )}
       {roomCode && lobbyStatus === 'completed' && (
@@ -617,9 +765,12 @@ function IDEPageContent() {
           zIndex: 10,
         }}>
           <span>⏹️ Lab Session Concluded</span>
-          <span style={{ fontWeight: 400, opacity: 0.85 }}>— This lab session has been stopped by the instructor</span>
+          <span style={{ fontWeight: 400, opacity: 0.85 }}>
+            {isTeacher ? '— Students can no longer join or report progress' : '— Your code stays in this browser, but your instructor no longer receives updates'}
+          </span>
         </div>
       )}
+      </div>
 
       {/* Activity Sidebar */}
       <IDESidebar />
@@ -963,25 +1114,61 @@ function IDEPageContent() {
   );
 }
 
+function LoadingScreen({ label }: { label: string }) {
+  return (
+    <div style={{
+      width: '100vw',
+      height: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'var(--bg-primary)',
+      color: 'var(--text-tertiary)',
+      fontSize: 13,
+    }}>
+      <div className="loading-spinner" style={{ marginRight: 8 }} />
+      {label}
+    </div>
+  );
+}
+
+function RoomGate({ title, message, action }: { title: string; message: string; action: { href: string; label: string } }) {
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'var(--bg-primary)',
+      padding: 16,
+    }}>
+      <div style={{
+        maxWidth: 420,
+        width: '100%',
+        padding: 24,
+        borderRadius: 8,
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border)',
+        textAlign: 'center',
+      }}>
+        <h1 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>{title}</h1>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 20 }}>{message}</p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+          <Link href="/" className="btn btn-ghost" style={{ height: 32, fontSize: 12, padding: '0 14px' }}>
+            Home
+          </Link>
+          <Link href={action.href} className="btn btn-primary" style={{ height: 32, fontSize: 12, padding: '0 14px' }}>
+            {action.label}
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function IDEPage() {
   return (
-    <Suspense
-      fallback={
-        <div style={{
-          width: '100vw',
-          height: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: 'var(--bg-primary)',
-          color: 'var(--text-tertiary)',
-          fontSize: 13,
-        }}>
-          <div className="loading-spinner" style={{ marginRight: 8 }} />
-          Loading workspace...
-        </div>
-      }
-    >
+    <Suspense fallback={<LoadingScreen label="Loading workspace…" />}>
       <IDEPageContent />
     </Suspense>
   );

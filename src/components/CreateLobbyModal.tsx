@@ -27,36 +27,44 @@ export default function CreateLobbyModal({ isOpen, onClose, onLobbyCreated }: Cr
   const teacherSession = getTeacherSession();
   const [title, setTitle] = useState('');
   const [course, setCourse] = useState('CS 101');
-  const [teacherName, setTeacherName] = useState(() => teacherSession?.name || 'Faculty Instructor');
   const [language, setLanguage] = useState('python');
+  // null = use the selected language's template; a string once the teacher edits it
+  const [customStarterCode, setCustomStarterCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [createdLobby, setCreatedLobby] = useState<LabLobby | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
   if (!isOpen) return null;
 
+  const selectedLangObj = LANGUAGES.find((l) => l.name === language) || LANGUAGES[0];
+  const starterCode = customStarterCode ?? selectedLangObj.defaultCode;
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!teacherSession) {
+      setError('Sign in with your instructor account to create a lab.');
+      return;
+    }
     setLoading(true);
+    setError(null);
 
     try {
-      const selectedLangObj = LANGUAGES.find((l) => l.name === language) || LANGUAGES[0];
-      const lobby = await createLobby({
-        title: title.trim() || 'Untitled Lab Session',
-        course: course.trim() || 'Computer Science',
-        teacher_name: teacherName.trim() || 'Instructor',
-        teacher_email: teacherSession?.email || 'teacher@mitaoe.ac.in',
-        language,
-        starter_code: selectedLangObj.defaultCode,
-      });
+      const lobby = await createLobby(
+        {
+          title: title.trim() || 'Untitled Lab Session',
+          course: course.trim() || 'Computer Science',
+          language,
+          starter_code: starterCode,
+        },
+        teacherSession
+      );
 
       setCreatedLobby(lobby);
-      if (onLobbyCreated) {
-        onLobbyCreated(lobby);
-      }
+      onLobbyCreated?.(lobby);
     } catch (err) {
-      console.error('Failed to create lobby:', err);
+      setError(err instanceof Error ? err.message : 'Could not create the lab.');
     } finally {
       setLoading(false);
     }
@@ -285,8 +293,8 @@ export default function CreateLobbyModal({ isOpen, onClose, onLobbyCreated }: Cr
               />
             </div>
 
-            {/* Course & Teacher Name */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+            {/* Course */}
+            <div style={{ marginBottom: 14 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginBottom: 6 }}>
                   Course Code
@@ -310,39 +318,21 @@ export default function CreateLobbyModal({ isOpen, onClose, onLobbyCreated }: Cr
                 />
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  Instructor Name
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Dr. Mitchell"
-                  value={teacherName}
-                  onChange={(e) => setTeacherName(e.target.value)}
-                  style={{
-                    width: '100%',
-                    height: 36,
-                    padding: '0 12px',
-                    borderRadius: 4,
-                    background: 'var(--bg-tertiary)',
-                    border: '1px solid var(--border)',
-                    color: 'var(--text-primary)',
-                    fontSize: 13,
-                    outline: 'none',
-                  }}
-                />
-              </div>
             </div>
 
             {/* Language */}
-            <div style={{ marginBottom: 20 }}>
+            <div style={{ marginBottom: 14 }}>
               <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginBottom: 6 }}>
                 Programming Language
               </label>
               <select
                 className="select"
                 value={language}
-                onChange={(e) => setLanguage(e.target.value)}
+                onChange={(e) => {
+                  if (customStarterCode !== null && !window.confirm('Switching language replaces your starter code. Continue?')) return;
+                  setLanguage(e.target.value);
+                  setCustomStarterCode(null);
+                }}
                 style={{
                   width: '100%',
                   height: 36,
@@ -357,6 +347,41 @@ export default function CreateLobbyModal({ isOpen, onClose, onLobbyCreated }: Cr
                 ))}
               </select>
             </div>
+
+            {/* Starter code */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginBottom: 6 }}>
+                Starter Code {language === 'web' ? '(index.html)' : ''}
+              </label>
+              <textarea
+                value={starterCode}
+                onChange={(e) => setCustomStarterCode(e.target.value)}
+                spellCheck={false}
+                rows={8}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: 4,
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-primary)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  resize: 'vertical',
+                  outline: 'none',
+                }}
+              />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Every student starts from this code when they join.
+              </div>
+            </div>
+
+            {error && (
+              <div role="alert" style={{ marginBottom: 14, padding: '8px 12px', borderRadius: 4, fontSize: 12, background: 'rgba(224, 74, 59, 0.1)', border: '1px solid rgba(224, 74, 59, 0.3)', color: 'var(--accent-danger)' }}>
+                {error}
+              </div>
+            )}
 
             {/* Actions */}
             <div style={{ display: 'flex', gap: 10 }}>

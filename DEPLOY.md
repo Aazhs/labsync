@@ -34,6 +34,8 @@ This guide covers deploying LabSync to production. The recommended platform is *
 
    | Variable | Default / Value | Purpose | Required? |
    |---|---|---|---|
+   | `NEXT_PUBLIC_SUPABASE_URL` | Your project URL | Teacher accounts, labs, realtime | **Yes** for real classes (see README → Running real labs) |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Your anon key | Same as above | **Yes** for real classes |
    | `JUDGE0_API_URL` | `https://ce.judge0.com` | Official free public code runner | **No** — works automatically with 0 config |
    | `JUDGE0_API_KEY` | *(Optional)* | Only if using a custom/private Judge0 key | **No** — not needed for public instance |
    | `GEMINI_API_KEY` | Your Gemini key | AI-powered hints via Google AI Studio | **No** — falls back to rule-based hints |
@@ -41,7 +43,7 @@ This guide covers deploying LabSync to production. The recommended platform is *
    > **Out of the box with ZERO environment variables:**
    > - Code execution runs for real across Python, C, C++, Java, and JavaScript via Judge0's free public cloud.
    > - Socratic hints work via intelligent rule-based error classification.
-   > - No credit cards, no subscriptions, no third-party accounts required.
+   > - Labs run in single-browser **demo mode**. Add Supabase to run labs across students' devices.
 
 4. **Deploy:**
 
@@ -187,10 +189,14 @@ docker run -p 3000:3000 labsync
 - Make sure you're using Node.js 18+ (Vercel Settings → General → Node.js Version)
 - Check that all dependencies are in `package.json` (not just installed locally)
 
-### Code execution returns "Demo Mode"
+### Code execution says the service is unreachable
 
-- You need to set `JUDGE0_API_KEY` in your environment variables
-- Without it, only JavaScript runs fully; other languages are mocked
+- LabSync runs all code on Judge0 and never on its own server. If Judge0 is down or rate-limiting, runs fail with a clear error instead of fake output.
+- For heavy classroom use, point `JUDGE0_API_URL` (and `JUDGE0_API_KEY`) at a private Judge0 instance.
+
+### Students can't see each other's labs / teachers see "demo mode"
+
+- Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` and run `supabase/schema.sql`. Without them, data stays in one browser.
 
 ### AI hints show generic responses
 
@@ -209,7 +215,7 @@ docker run -p 3000:3000 labsync
 ```
 Browser ──→ Next.js (Vercel Serverless)
               │
-              ├── /api/execute  ──→ Judge0 API (or sandboxed JS eval)
+              ├── /api/execute  ──→ Judge0 API
               ├── /api/hint     ──→ Gemini API (or rule-based fallback)
               └── Static pages  ──→ CDN (landing, IDE, dashboard)
 ```

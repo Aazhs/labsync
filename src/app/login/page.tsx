@@ -12,7 +12,6 @@ import {
   ArrowRight,
   AlertCircle,
   CheckCircle2,
-  ShieldCheck,
   Building,
   ArrowLeft,
   Users,
@@ -21,6 +20,7 @@ import {
   loginTeacher,
   signupTeacher,
   isValidTeacherEmail,
+  MIN_PASSWORD_LENGTH,
 } from '@/lib/teacherAuth';
 
 export default function LoginPage() {
@@ -70,7 +70,12 @@ export default function LoginPage() {
 
         const res = await signupTeacher(name.trim(), cleanEmail, password, department);
         if (!res.success || !res.teacher) {
-          setError(res.error || 'Registration failed.');
+          if (res.notice) {
+            setSuccessMsg(res.notice);
+            setMode('login');
+          } else {
+            setError(res.error || 'Registration failed.');
+          }
           setLoading(false);
           return;
         }
@@ -359,13 +364,14 @@ export default function LoginPage() {
                 Password
               </label>
               <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                any password
+                {mode === 'signup' ? `at least ${MIN_PASSWORD_LENGTH} characters` : ''}
               </span>
             </div>
             <div style={{ position: 'relative' }}>
               <input
                 type="password"
                 placeholder="Enter password..."
+                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 style={{

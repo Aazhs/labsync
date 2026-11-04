@@ -60,7 +60,8 @@ In a typical 60-student programming lab, the professor has no idea who's stuck, 
 | **Editor** | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
 | **State** | [Zustand](https://zustand-demo.pmnd.rs/) |
 | **Styling** | CSS Custom Properties + Tailwind v4 |
-| **Code Execution** | [Judge0 CE API](https://judge0.com/) / local fallback |
+| **Code Execution** | [Judge0 CE API](https://judge0.com/) |
+| **Auth & Realtime** | [Supabase](https://supabase.com/) (Auth, Postgres, Realtime) |
 | **AI Hints** | Gemini API / OpenAI API / rule-based fallback |
 | **Deployment** | [Vercel](https://vercel.com) (free tier) |
 
@@ -99,12 +100,29 @@ cp .env.example .env.local
 
 | Variable | Purpose | Required |
 |---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | **Yes, for real labs** — without it LabSync runs in single-browser demo mode |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | **Yes, for real labs** |
 | `JUDGE0_API_URL` | Code execution engine | No — defaults to `https://ce.judge0.com` (free, no key needed) |
-| `JUDGE0_API_KEY` | Optional private Judge0 key | No — only if using a custom paid/private tier |
-| `GEMINI_API_KEY` | AI-powered hint generation | No — falls back to built-in rule-based classifier |
-| `OPENAI_API_KEY` | Alternative AI provider | No |
+| `JUDGE0_API_KEY` | Private Judge0 key | No — only for a private/paid Judge0 instance |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | AI-powered hints | No — falls back to built-in rule-based hints |
+| `OPENAI_API_KEY` / `OPENAI_MODEL` | Alternative AI provider | No |
+| `LABSYNC_LOCAL_EXEC` | `true` runs code with your local compilers instead of Judge0 | No — **development only**, ignored in production builds |
 
-> **Zero-Config Execution:** Out of the box, LabSync executes code for real (Python, C, C++, Java, JS) using Judge0's public cloud with no credit cards or API keys required.
+> **Zero-Config Execution:** Out of the box, LabSync executes code (Python, C, C++, Java, JS) on Judge0's public cloud. Student code is never executed on the LabSync server itself.
+
+### Running real labs (Supabase)
+
+Without Supabase, LabSync runs in **demo mode**: labs, teacher accounts and students live in one browser's localStorage, so it's only useful for trying the product. To run a real class:
+
+1. Create a project at [supabase.com](https://supabase.com) and copy the URL and anon key into `.env.local`.
+2. Open the SQL editor and run [`supabase/schema.sql`](supabase/schema.sql). It is safe to re-run and upgrades older LabSync schemas.
+3. Under **Authentication → URL Configuration**, add your site URL (e.g. `http://localhost:3000`) so email confirmation links work.
+
+How access works:
+
+- **Teachers** sign up with an `@mitaoe.ac.in` email and a password (Supabase Auth). Only they can create labs, and only the creator can pause, stop, broadcast or see a lab's students.
+- **Students** have no accounts. They join with the 6-digit code, their name and PRN, and receive a private per-seat token. Re-joining with the same PRN reuses their seat, e.g. after switching computers.
+- Students' code, run results, raised hands and "done" status stream to the instructor dashboard in real time.
 
 ---
 
@@ -158,7 +176,7 @@ src/
 1. Push to GitHub
 2. Import project at [vercel.com/new](https://vercel.com/new)
 3. Vercel auto-detects Next.js — no config needed
-4. (Optional) Add `JUDGE0_API_KEY` and `GEMINI_API_KEY` in Settings → Environment Variables
+4. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (and optionally `GEMINI_API_KEY`) in Settings → Environment Variables
 5. Deploy
 
 > **Free tier is sufficient.** API routes run as serverless functions — no separate backend needed.

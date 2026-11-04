@@ -1,4 +1,20 @@
-import { getSupabase } from './supabase';
+import { getSupabase, isSupabaseConfigured } from './supabase';
+import type { TeacherUser } from './teacherAuth';
+
+/**
+ * Lab lobbies & students.
+ *
+ * With Supabase configured, everything goes through Supabase (see supabase/schema.sql
+ * for the security model) and errors are surfaced to the caller. Without it, LabSync
+ * runs in demo mode: data lives in this browser's localStorage and only syncs between
+ * tabs of the same browser.
+ */
+
+export const isDemoMode = !isSupabaseConfigured;
+
+export type LobbyStatus = 'active' | 'paused' | 'completed';
+export type StudentStatus = 'active' | 'coding' | 'stuck' | 'needs_help' | 'completed' | 'idle';
+export type ErrorTier = 'syntax' | 'logic' | 'conceptual' | 'none';
 
 export interface LabLobby {
   id: string;
@@ -6,16 +22,16 @@ export interface LabLobby {
   title: string;
   course: string;
   teacher_name: string;
-  teacher_email?: string;
+  teacher_email?: string | null;
+  teacher_id?: string | null;
   language: string;
-  starter_code?: string;
-  broadcast_code?: string;
-  broadcast_enabled?: boolean;
-  follow_mode?: boolean;
-  status: 'active' | 'paused' | 'completed';
+  starter_code?: string | null;
+  broadcast_code?: string | null;
+  broadcast_enabled?: boolean | null;
+  follow_mode?: boolean | null;
+  status: LobbyStatus;
   created_at: string;
   updated_at?: string;
-  students_count?: number;
 }
 
 export interface LabStudent {
@@ -24,588 +40,397 @@ export interface LabStudent {
   room_code: string;
   student_name: string;
   prn: string;
-  status: 'active' | 'coding' | 'stuck' | 'needs_help' | 'completed' | 'idle';
-  error_tier?: 'syntax' | 'logic' | 'conceptual' | 'none';
-  error_category?: string;
-  current_file?: string;
+  status: StudentStatus;
+  error_tier?: ErrorTier | null;
+  error_category?: string | null;
+  current_file?: string | null;
+  code_snapshot?: string | null;
   joined_at: string;
   last_seen_at: string;
+}
+
+/** What a student's browser keeps after joining, used to authorize their updates. */
+export interface StudentSession {
+  studentId: string;
+  accessToken: string;
+  lobbyId: string;
+  roomCode: string;
+  name: string;
+  prn: string;
 }
 
 export interface CreateLobbyParams {
   title: string;
   course: string;
-  teacher_name: string;
-  teacher_email?: string;
   language: string;
   starter_code?: string;
 }
 
-const LOCAL_STORAGE_LOBBIES_KEY = 'labsync_local_lobbies';
-const LOCAL_STORAGE_STUDENTS_KEY = 'labsync_local_students';
-
-// Generate a random 6-digit numeric room code (e.g. "492018")
-export function generate6DigitCode(): string {
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
-  return code;
+export interface StudentStatePatch {
+  status?: StudentStatus;
+  errorTier?: ErrorTier;
+  errorCategory?: string | null;
+  currentFile?: string;
+  codeSnapshot?: string;
 }
 
-// ─── Local Fallback Store (Synchronized across tabs via BroadcastChannel) ───
-let broadcastChannel: BroadcastChannel | null = null;
-if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-  broadcastChannel = new BroadcastChannel('labsync_lobbies_channel');
+/** A student is shown as idle when they haven't been seen for this long. */
+export const STUDENT_IDLE_AFTER_MS = 3 * 60 * 1000;
+
+export function isValidRoomCode(code: string): boolean {
+  return /^\d{6}$/.test(code.trim());
 }
 
-function getLocalLobbies(): LabLobby[] {
+function generateRoomCode(): string {
+  const n = crypto.getRandomValues(new Uint32Array(1))[0] % 900000;
+  return String(100000 + n);
+}
+
+function describeError(error: { message?: string } | null | undefined, fallback: string): Error {
+  return new Error(error?.message || fallback);
+}
+
+// ─── Demo-mode storage (single browser, synced across tabs) ───
+
+const DEMO_LOBBIES_KEY = 'labsync_local_lobbies';
+const DEMO_STUDENTS_KEY = 'labsync_local_students';
+const STUDENT_SESSION_PREFIX = 'labsync_student_session_';
+
+let demoChannel: BroadcastChannel | null = null;
+function getDemoChannel(): BroadcastChannel | null {
+  if (!demoChannel && typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+    demoChannel = new BroadcastChannel('labsync_lobbies_channel');
+  }
+  return demoChannel;
+}
+
+function readDemo<T>(key: string): T[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_LOBBIES_KEY);
-    return raw ? JSON.parse(raw) : [];
+    return JSON.parse(localStorage.getItem(key) || '[]');
   } catch {
     return [];
   }
 }
 
-function saveLocalLobbies(lobbies: LabLobby[]) {
-  if (typeof window === 'undefined') return;
+function writeDemo<T>(key: string, items: T[]) {
   try {
-    localStorage.setItem(LOCAL_STORAGE_LOBBIES_KEY, JSON.stringify(lobbies));
-    broadcastChannel?.postMessage({ type: 'LOBBIES_UPDATED', lobbies });
+    localStorage.setItem(key, JSON.stringify(items));
+  } catch {}
+  const roomCodes = new Set((items as { room_code?: string }[]).map((i) => i.room_code));
+  for (const roomCode of roomCodes) getDemoChannel()?.postMessage({ type: 'CHANGED', roomCode });
+}
+
+// ─── Student session (per room, in this browser) ───
+
+export function saveStudentSession(session: StudentSession): void {
+  try {
+    localStorage.setItem(STUDENT_SESSION_PREFIX + session.roomCode, JSON.stringify(session));
   } catch {}
 }
 
-function getLocalStudents(): LabStudent[] {
-  if (typeof window === 'undefined') return [];
+export function getStudentSession(roomCode: string): StudentSession | null {
+  if (typeof window === 'undefined') return null;
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_STUDENTS_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const raw = localStorage.getItem(STUDENT_SESSION_PREFIX + roomCode);
+    return raw ? JSON.parse(raw) : null;
   } catch {
-    return [];
+    return null;
   }
 }
 
-function saveLocalStudents(students: LabStudent[]) {
-  if (typeof window === 'undefined') return;
+export function clearStudentSession(roomCode: string): void {
   try {
-    localStorage.setItem(LOCAL_STORAGE_STUDENTS_KEY, JSON.stringify(students));
-    broadcastChannel?.postMessage({ type: 'STUDENTS_UPDATED', students });
+    localStorage.removeItem(STUDENT_SESSION_PREFIX + roomCode);
   } catch {}
 }
 
-// Seed initial demo lobby if empty
-export function initSeedLobbies() {
-  if (typeof window === 'undefined') return;
-  const existing = getLocalLobbies();
-  if (existing.length === 0) {
-    const sampleLobbies: LabLobby[] = [
-      {
-        id: 'seed-lobby-1',
-        room_code: '482910',
-        title: 'CS 101: Introduction to Algorithms & Functions',
-        course: 'CS101',
-        teacher_name: 'Dr. Sarah Mitchell',
-        language: 'python',
-        starter_code: '# CS101 Lab: Write a function to check if a string is a palindrome\n\ndef is_palindrome(text):\n    # TODO: Implement this function\n    pass\n\nif __name__ == "__main__":\n    print(is_palindrome("racecar"))\n',
-        broadcast_code: '# Dr. Sarah Mitchell - Demonstration Code\ndef is_palindrome(text):\n    clean = "".join(c.lower() for c in text if c.isalnum())\n    return clean == clean[::-1]\n\nprint("Test racecar:", is_palindrome("racecar"))\n',
-        broadcast_enabled: true,
-        follow_mode: false,
-        status: 'active',
-        created_at: new Date(Date.now() - 3600000).toISOString(),
-        students_count: 0,
-      },
-      {
-        id: 'seed-lobby-2',
-        room_code: '719302',
-        title: 'CS 204: Object Oriented Programming & Pointers',
-        course: 'CS204',
-        teacher_name: 'Prof. David Vance',
-        language: 'cpp',
-        starter_code: '#include <iostream>\nusing namespace std;\n\nint main() {\n    // CS204 Lab: Memory Management\n    cout << "Ready for OOP Lab" << endl;\n    return 0;\n}\n',
-        broadcast_code: '#include <iostream>\nusing namespace std;\n\n// Prof. David Vance - Reference Pointer Demo\nvoid swap(int* a, int* b) {\n    int temp = *a;\n    *a = *b;\n    *b = temp;\n}\n\nint main() {\n    int x = 10, y = 20;\n    swap(&x, &y);\n    cout << "x=" << x << " y=" << y << endl;\n    return 0;\n}\n',
-        broadcast_enabled: true,
-        follow_mode: false,
-        status: 'active',
-        created_at: new Date(Date.now() - 1800000).toISOString(),
-        students_count: 0,
-      },
-    ];
-    saveLocalLobbies(sampleLobbies);
-  }
-}
+// ─── Lobbies ───
 
-// ─── Lobby Service APIs ───
-
-/**
- * Create a new lab lobby with a unique 6-digit code.
- */
-export async function createLobby(params: CreateLobbyParams): Promise<LabLobby> {
-  const supabase = getSupabase();
-  let roomCode = generate6DigitCode();
-
-  if (supabase) {
-    // Generate unique code in Supabase
-    let exists = true;
-    let attempts = 0;
-    while (exists && attempts < 5) {
-      attempts++;
-      const { data } = await supabase
-        .from('lab_lobbies')
-        .select('id')
-        .eq('room_code', roomCode)
-        .maybeSingle();
-      if (!data) {
-        exists = false;
-      } else {
-        roomCode = generate6DigitCode();
-      }
-    }
-
-    const { data, error } = await supabase
-      .from('lab_lobbies')
-      .insert({
-        room_code: roomCode,
-        title: params.title.trim() || 'Untitled Lab Session',
-        course: params.course.trim() || 'Computer Science',
-        teacher_name: params.teacher_name.trim() || 'Instructor',
-        teacher_email: params.teacher_email || 'teacher@mitaoe.ac.in',
-        language: params.language || 'python',
-        starter_code: params.starter_code || '',
-        broadcast_code: params.starter_code || '',
-        broadcast_enabled: true,
-        follow_mode: false,
-        status: 'active',
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Supabase createLobby error, falling back to local:', error);
-    } else if (data) {
-      return data as LabLobby;
-    }
-  }
-
-  // Fallback / Local storage implementation
-  const lobbies = getLocalLobbies();
-  // Ensure unique 6-digit code locally
-  while (lobbies.some((l) => l.room_code === roomCode)) {
-    roomCode = generate6DigitCode();
-  }
-
-  const newLobby: LabLobby = {
-    id: `lobby-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-    room_code: roomCode,
+export async function createLobby(params: CreateLobbyParams, teacher: TeacherUser): Promise<LabLobby> {
+  const base = {
     title: params.title.trim() || 'Untitled Lab Session',
     course: params.course.trim() || 'Computer Science',
-    teacher_name: params.teacher_name.trim() || 'Instructor',
-    teacher_email: params.teacher_email || 'teacher@mitaoe.ac.in',
+    teacher_name: teacher.name,
+    teacher_email: teacher.email,
     language: params.language || 'python',
     starter_code: params.starter_code || '',
     broadcast_code: params.starter_code || '',
     broadcast_enabled: true,
     follow_mode: false,
-    status: 'active',
-    created_at: new Date().toISOString(),
-    students_count: 0,
+    status: 'active' as const,
   };
 
-  lobbies.unshift(newLobby);
-  saveLocalLobbies(lobbies);
-  return newLobby;
+  const supabase = getSupabase();
+  if (supabase) {
+    // Room codes are unique in the database; retry on the rare collision.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data, error } = await supabase
+        .from('lab_lobbies')
+        .insert({ ...base, room_code: generateRoomCode() })
+        .select()
+        .single();
+      if (!error) return data as LabLobby;
+      if (error.code !== '23505') {
+        if (error.code === '42501') {
+          throw new Error('You are not allowed to create labs. Sign in with your institutional account.');
+        }
+        throw describeError(error, 'Could not create the lab.');
+      }
+    }
+    throw new Error('Could not generate a unique room code. Please try again.');
+  }
+
+  const lobbies = readDemo<LabLobby>(DEMO_LOBBIES_KEY);
+  let roomCode = generateRoomCode();
+  while (lobbies.some((l) => l.room_code === roomCode)) roomCode = generateRoomCode();
+  const lobby: LabLobby = {
+    ...base,
+    id: crypto.randomUUID(),
+    room_code: roomCode,
+    teacher_id: teacher.id,
+    created_at: new Date().toISOString(),
+  };
+  writeDemo(DEMO_LOBBIES_KEY, [lobby, ...lobbies]);
+  return lobby;
 }
 
-/**
- * Fetch a lobby by its 6-digit room code.
- */
+/** Look up a lab by room code, whatever its status. Returns null when no lab matches. */
 export async function getLobbyByCode(roomCode: string): Promise<LabLobby | null> {
-  const cleanCode = roomCode.trim();
-  if (!cleanCode) return null;
+  const code = roomCode.trim();
+  if (!isValidRoomCode(code)) return null;
 
   const supabase = getSupabase();
   if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('lab_lobbies')
-        .select('*')
-        .eq('room_code', cleanCode)
-        .eq('status', 'active')
-        .maybeSingle();
-
-      if (!error && data) {
-        return data as LabLobby;
-      }
-    } catch (err) {
-      console.warn('Supabase fetch lobby failed, checking local:', err);
-    }
+    const { data, error } = await supabase.from('lab_lobbies').select('*').eq('room_code', code).maybeSingle();
+    if (error) throw describeError(error, 'Could not reach the lab server.');
+    return (data as LabLobby) ?? null;
   }
 
-  // Local fallback
-  initSeedLobbies();
-  const lobbies = getLocalLobbies();
-  const match = lobbies.find((l) => l.room_code === cleanCode && l.status === 'active');
-  return match || null;
+  return readDemo<LabLobby>(DEMO_LOBBIES_KEY).find((l) => l.room_code === code) ?? null;
 }
 
-/**
- * List all active lobbies (supports concurrent multiple classrooms).
- */
-export async function listActiveLobbies(): Promise<LabLobby[]> {
+/** The teacher's labs that haven't ended, newest first. */
+export async function listTeacherLobbies(teacher: TeacherUser): Promise<LabLobby[]> {
   const supabase = getSupabase();
   if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('lab_lobbies')
-        .select('*')
-        .eq('status', 'active')
-        .order('created_at', { ascending: false });
-
-      if (!error && data) {
-        return data as LabLobby[];
-      }
-    } catch (err) {
-      console.warn('Supabase listActiveLobbies failed, checking local:', err);
-    }
+    const { data, error } = await supabase
+      .from('lab_lobbies')
+      .select('*')
+      .eq('teacher_id', teacher.id)
+      .neq('status', 'completed')
+      .order('created_at', { ascending: false });
+    if (error) throw describeError(error, 'Could not load your labs.');
+    return data as LabLobby[];
   }
 
-  initSeedLobbies();
-  const lobbies = getLocalLobbies();
-  return lobbies.filter((l) => l.status === 'active');
+  return readDemo<LabLobby>(DEMO_LOBBIES_KEY).filter(
+    (l) => l.teacher_id === teacher.id && l.status !== 'completed'
+  );
 }
 
-/**
- * Join a lab lobby with student name, PRN, and 6-digit code.
- */
+export function isLobbyOwner(lobby: LabLobby, teacher: TeacherUser | null): boolean {
+  return Boolean(teacher && lobby.teacher_id && lobby.teacher_id === teacher.id);
+}
+
+export async function updateLobby(
+  roomCode: string,
+  updates: Partial<Pick<LabLobby, 'broadcast_code' | 'broadcast_enabled' | 'follow_mode' | 'status'>>
+): Promise<LabLobby> {
+  const code = roomCode.trim();
+  const updated_at = new Date().toISOString();
+
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('lab_lobbies')
+      .update({ ...updates, updated_at })
+      .eq('room_code', code)
+      .select()
+      .maybeSingle();
+    if (error) throw describeError(error, 'Could not update the lab.');
+    if (!data) throw new Error('You can only change labs you created.');
+    return data as LabLobby;
+  }
+
+  const lobbies = readDemo<LabLobby>(DEMO_LOBBIES_KEY);
+  const idx = lobbies.findIndex((l) => l.room_code === code);
+  if (idx === -1) throw new Error('Lab not found.');
+  lobbies[idx] = { ...lobbies[idx], ...updates, updated_at };
+  writeDemo(DEMO_LOBBIES_KEY, lobbies);
+  return lobbies[idx];
+}
+
+export const updateLobbyBroadcast = (
+  roomCode: string,
+  updates: Partial<Pick<LabLobby, 'broadcast_code' | 'broadcast_enabled' | 'follow_mode'>>
+) => updateLobby(roomCode, updates);
+
+export const updateLobbyStatus = (roomCode: string, status: LobbyStatus) => updateLobby(roomCode, { status });
+
+// ─── Students ───
+
 export async function joinLobby(
   roomCode: string,
   studentName: string,
   prn: string
-): Promise<{ success: boolean; student?: LabStudent; lobby?: LabLobby; error?: string }> {
-  const cleanCode = roomCode.trim();
-  const cleanName = studentName.trim();
-  const cleanPrn = prn.trim();
+): Promise<{ session: StudentSession; lobby: LabLobby }> {
+  const code = roomCode.trim();
+  const name = studentName.trim();
+  const cleanPrn = prn.trim().toUpperCase();
 
-  if (!cleanCode || cleanCode.length !== 6) {
-    return { success: false, error: 'Please enter a valid 6-digit room code' };
-  }
+  if (!isValidRoomCode(code)) throw new Error('Please enter a valid 6-digit room code.');
+  if (!name) throw new Error('Please enter your full name.');
+  if (!cleanPrn) throw new Error('Please enter your PRN.');
 
-  if (!cleanName) {
-    return { success: false, error: 'Please enter your full name' };
-  }
+  const lobby = await getLobbyByCode(code);
+  if (!lobby) throw new Error(`No lab found with code ${code}. Check the code with your instructor.`);
+  if (lobby.status === 'completed') throw new Error('This lab session has already ended.');
 
-  if (!cleanPrn) {
-    return { success: false, error: 'Please enter your college PRN (e.g. 202501040430)' };
-  }
-
-  const lobby = await getLobbyByCode(cleanCode);
-  if (!lobby) {
-    return { success: false, error: `No active lab session found with code "${cleanCode}". Please verify with your instructor.` };
-  }
-
-  if (lobby.status === 'completed') {
-    return { success: false, error: 'This lab session has already concluded and is closed.' };
-  }
-
+  let session: StudentSession;
   const supabase = getSupabase();
   if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('lab_students')
-        .insert({
-          lobby_id: lobby.id,
-          room_code: cleanCode,
-          student_name: cleanName,
-          prn: cleanPrn,
-          status: 'coding',
-          current_file: lobby.language === 'web' ? 'index.html' : 'main.py',
-        })
-        .select()
-        .single();
-
-      if (!error && data) {
-        return { success: true, student: data as LabStudent, lobby };
-      }
-    } catch (err) {
-      console.warn('Supabase join failed, falling back to local:', err);
-    }
+    const { data, error } = await supabase.rpc('join_lab', {
+      p_room_code: code,
+      p_student_name: name,
+      p_prn: cleanPrn,
+    });
+    const row = Array.isArray(data) ? data[0] : data;
+    if (error || !row) throw describeError(error, 'Could not join the lab.');
+    session = {
+      studentId: row.student_id,
+      accessToken: row.access_token,
+      lobbyId: row.lobby_id,
+      roomCode: code,
+      name,
+      prn: cleanPrn,
+    };
+  } else {
+    const students = readDemo<LabStudent & { access_token: string }>(DEMO_STUDENTS_KEY);
+    const now = new Date().toISOString();
+    const existing = students.find((s) => s.lobby_id === lobby.id && s.prn === cleanPrn);
+    const accessToken = crypto.randomUUID();
+    const student = existing ?? {
+      id: crypto.randomUUID(),
+      lobby_id: lobby.id,
+      room_code: code,
+      student_name: name,
+      prn: cleanPrn,
+      status: 'coding' as const,
+      joined_at: now,
+      last_seen_at: now,
+      access_token: accessToken,
+    };
+    Object.assign(student, { student_name: name, last_seen_at: now, access_token: accessToken });
+    writeDemo(DEMO_STUDENTS_KEY, existing ? students : [...students, student]);
+    session = { studentId: student.id, accessToken, lobbyId: lobby.id, roomCode: code, name, prn: cleanPrn };
   }
 
-  // Local fallback
-  const students = getLocalStudents();
-  const newStudent: LabStudent = {
-    id: `student-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-    lobby_id: lobby.id,
-    room_code: cleanCode,
-    student_name: cleanName,
-    prn: cleanPrn,
-    status: 'coding',
-    current_file: lobby.language === 'web' ? 'index.html' : 'main.py',
-    joined_at: new Date().toISOString(),
-    last_seen_at: new Date().toISOString(),
-  };
-
-  students.push(newStudent);
-  saveLocalStudents(students);
-
-  // Increment student count in local lobby
-  const lobbies = getLocalLobbies();
-  const lobbyIndex = lobbies.findIndex((l) => l.id === lobby.id);
-  if (lobbyIndex !== -1) {
-    lobbies[lobbyIndex].students_count = (lobbies[lobbyIndex].students_count || 0) + 1;
-    saveLocalLobbies(lobbies);
-  }
-
-  return { success: true, student: newStudent, lobby };
+  saveStudentSession(session);
+  return { session, lobby };
 }
 
-/**
- * List all students in a given room.
- */
 export async function getLobbyStudents(roomCode: string): Promise<LabStudent[]> {
-  const cleanCode = roomCode.trim();
+  const code = roomCode.trim();
   const supabase = getSupabase();
-
   if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('lab_students')
-        .select('*')
-        .eq('room_code', cleanCode)
-        .order('joined_at', { ascending: false });
-
-      if (!error && data) {
-        return data as LabStudent[];
-      }
-    } catch (err) {
-      console.warn('Supabase getLobbyStudents error:', err);
-    }
+    const { data, error } = await supabase
+      .from('lab_students')
+      .select('id, lobby_id, room_code, student_name, prn, status, error_tier, error_category, current_file, code_snapshot, joined_at, last_seen_at')
+      .eq('room_code', code)
+      .order('joined_at', { ascending: true });
+    if (error) throw describeError(error, 'Could not load students.');
+    return data as LabStudent[];
   }
 
-  const students = getLocalStudents();
-  return students.filter((s) => s.room_code === cleanCode);
+  return readDemo<LabStudent & { access_token?: string }>(DEMO_STUDENTS_KEY)
+    .filter((s) => s.room_code === code)
+    .map(({ access_token, ...s }) => s);
 }
 
-/**
- * Update student status (e.g. 'needs_help', 'stuck', 'coding', 'completed').
- */
-export async function updateStudentStatus(
-  studentId: string,
-  roomCode: string,
-  status: LabStudent['status'],
-  errorInfo?: { tier?: LabStudent['error_tier']; category?: string }
-): Promise<void> {
+export async function updateStudentState(session: StudentSession, patch: StudentStatePatch): Promise<void> {
   const supabase = getSupabase();
   if (supabase) {
-    try {
-      await supabase
-        .from('lab_students')
-        .update({
-          status,
-          error_tier: errorInfo?.tier || 'none',
-          error_category: errorInfo?.category || null,
-          last_seen_at: new Date().toISOString(),
-        })
-        .eq('id', studentId);
-      return;
-    } catch {}
-  }
-
-  const students = getLocalStudents();
-  const idx = students.findIndex((s) => s.id === studentId || (s.room_code === roomCode && s.student_name === studentId));
-  if (idx !== -1) {
-    students[idx].status = status;
-    if (errorInfo?.tier) students[idx].error_tier = errorInfo.tier;
-    if (errorInfo?.category) students[idx].error_category = errorInfo.category;
-    students[idx].last_seen_at = new Date().toISOString();
-    saveLocalStudents(students);
-  }
-}
-
-/**
- * End/close a lobby session.
- */
-export async function endLobby(roomCode: string): Promise<void> {
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      await supabase
-        .from('lab_lobbies')
-        .update({ status: 'completed' })
-        .eq('room_code', roomCode);
-    } catch {}
-  }
-
-  const lobbies = getLocalLobbies();
-  const updated = lobbies.map((l) => (l.room_code === roomCode ? { ...l, status: 'completed' as const } : l));
-  saveLocalLobbies(updated);
-}
-
-/**
- * Update professor broadcast code, student viewing permission, or follow mode.
- */
-export async function updateLobbyBroadcast(
-  roomCode: string,
-  updates: {
-    broadcast_code?: string;
-    broadcast_enabled?: boolean;
-    follow_mode?: boolean;
-  }
-): Promise<LabLobby | null> {
-  const cleanCode = roomCode.trim();
-  const supabase = getSupabase();
-
-  if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('lab_lobbies')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('room_code', cleanCode)
-        .select()
-        .single();
-
-      if (!error && data) {
-        // Also sync local cache
-        const lobbies = getLocalLobbies();
-        const idx = lobbies.findIndex((l) => l.room_code === cleanCode);
-        if (idx !== -1) {
-          lobbies[idx] = { ...lobbies[idx], ...updates, updated_at: new Date().toISOString() };
-          saveLocalLobbies(lobbies);
-        }
-        broadcastChannel?.postMessage({
-          type: 'BROADCAST_UPDATED',
-          roomCode: cleanCode,
-          updates,
-        });
-        return data as LabLobby;
-      }
-    } catch (err) {
-      console.warn('Supabase updateLobbyBroadcast error:', err);
-    }
-  }
-
-  // Local fallback
-  const lobbies = getLocalLobbies();
-  const idx = lobbies.findIndex((l) => l.room_code === cleanCode);
-  if (idx !== -1) {
-    lobbies[idx] = {
-      ...lobbies[idx],
-      ...updates,
-      updated_at: new Date().toISOString(),
-    };
-    saveLocalLobbies(lobbies);
-    broadcastChannel?.postMessage({
-      type: 'BROADCAST_UPDATED',
-      roomCode: cleanCode,
-      updates,
+    const { error } = await supabase.rpc('update_student_state', {
+      p_student_id: session.studentId,
+      p_access_token: session.accessToken,
+      p_status: patch.status ?? null,
+      p_error_tier: patch.errorTier ?? null,
+      p_error_category: patch.errorCategory ?? null,
+      p_current_file: patch.currentFile ?? null,
+      p_code_snapshot: patch.codeSnapshot ?? null,
     });
-    return lobbies[idx];
+    if (error) throw describeError(error, 'Could not sync your status.');
+    return;
   }
-  return null;
+
+  const students = readDemo<LabStudent & { access_token: string }>(DEMO_STUDENTS_KEY);
+  const student = students.find((s) => s.id === session.studentId && s.access_token === session.accessToken);
+  if (!student) throw new Error('Invalid student session.');
+  if (patch.status) student.status = patch.status;
+  if (patch.errorTier) {
+    student.error_tier = patch.errorTier;
+    student.error_category = patch.errorTier === 'none' ? null : patch.errorCategory ?? null;
+  }
+  if (patch.currentFile) student.current_file = patch.currentFile;
+  if (patch.codeSnapshot !== undefined) student.code_snapshot = patch.codeSnapshot;
+  student.last_seen_at = new Date().toISOString();
+  writeDemo(DEMO_STUDENTS_KEY, students);
 }
 
-/**
- * Update lobby session status (e.g. 'active', 'paused', 'completed').
- * Allows teachers to start / stop / pause / resume labs whenever they want.
- */
-export async function updateLobbyStatus(
-  roomCode: string,
-  status: 'active' | 'paused' | 'completed'
-): Promise<LabLobby | null> {
-  const cleanCode = roomCode.trim();
-  const supabase = getSupabase();
-
-  if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('lab_lobbies')
-        .update({
-          status,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('room_code', cleanCode)
-        .select()
-        .single();
-
-      if (!error && data) {
-        const lobbies = getLocalLobbies();
-        const idx = lobbies.findIndex((l) => l.room_code === cleanCode);
-        if (idx !== -1) {
-          lobbies[idx] = { ...lobbies[idx], status, updated_at: new Date().toISOString() };
-          saveLocalLobbies(lobbies);
-        }
-        broadcastChannel?.postMessage({
-          type: 'STATUS_UPDATED',
-          roomCode: cleanCode,
-          status,
-        });
-        return data as LabLobby;
-      }
-    } catch (err) {
-      console.warn('Supabase updateLobbyStatus error:', err);
-    }
-  }
-
-  const lobbies = getLocalLobbies();
-  const idx = lobbies.findIndex((l) => l.room_code === cleanCode);
-  if (idx !== -1) {
-    lobbies[idx] = {
-      ...lobbies[idx],
-      status,
-      updated_at: new Date().toISOString(),
-    };
-    saveLocalLobbies(lobbies);
-    broadcastChannel?.postMessage({
-      type: 'STATUS_UPDATED',
-      roomCode: cleanCode,
-      status,
-    });
-    return lobbies[idx];
-  }
-  return null;
+/** Display status, accounting for students who have gone quiet. */
+export function effectiveStudentStatus(student: LabStudent, now = Date.now()): StudentStatus {
+  if (student.status === 'completed' || student.status === 'needs_help') return student.status;
+  const lastSeen = new Date(student.last_seen_at).getTime();
+  return now - lastSeen > STUDENT_IDLE_AFTER_MS ? 'idle' : student.status;
 }
 
-/**
- * Realtime subscription to lobby changes and student activity.
- */
-export function subscribeToLobbyUpdates(roomCode: string, onChange: () => void): () => void {
-  const supabase = getSupabase();
+// ─── Realtime ───
 
+export type LobbyChange =
+  | { table: 'lab_lobbies'; lobby: LabLobby }
+  | { table: 'lab_students'; student: LabStudent; deleted?: boolean }
+  /** Something changed but the details are unknown (demo mode); refetch. */
+  | { table: 'unknown' };
+
+/**
+ * Subscribe to changes in one room. In Supabase mode the callback receives the changed
+ * row so callers can merge it instead of refetching everything.
+ */
+export function subscribeToLobbyUpdates(roomCode: string, onChange: (change: LobbyChange) => void): () => void {
+  const supabase = getSupabase();
   if (supabase) {
     const channel = supabase
-      .channel(`lobby-room-${roomCode}`)
+      .channel(`lobby-room-${roomCode}-${crypto.randomUUID()}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'lab_students', filter: `room_code=eq.${roomCode}` },
-        () => onChange()
+        (payload) => {
+          const deleted = payload.eventType === 'DELETE';
+          const row = (deleted ? payload.old : payload.new) as LabStudent;
+          if (row?.id) onChange({ table: 'lab_students', student: row, deleted });
+          else onChange({ table: 'unknown' });
+        }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'lab_lobbies', filter: `room_code=eq.${roomCode}` },
-        () => onChange()
+        (payload) => {
+          const row = payload.new as LabLobby;
+          if (row?.id) onChange({ table: 'lab_lobbies', lobby: row });
+          else onChange({ table: 'unknown' });
+        }
       )
       .subscribe();
-
     return () => {
       supabase.removeChannel(channel);
     };
   }
 
-  // Local BroadcastChannel listener
+  const channel = getDemoChannel();
   const listener = (event: MessageEvent) => {
-    if (
-      event.data?.type === 'STUDENTS_UPDATED' ||
-      event.data?.type === 'LOBBIES_UPDATED' ||
-      event.data?.type === 'BROADCAST_UPDATED' ||
-      event.data?.type === 'STATUS_UPDATED'
-    ) {
-      onChange();
-    }
+    if (event.data?.type === 'CHANGED' && event.data.roomCode === roomCode) onChange({ table: 'unknown' });
   };
-
-  broadcastChannel?.addEventListener('message', listener);
-  return () => {
-    broadcastChannel?.removeEventListener('message', listener);
-  };
+  channel?.addEventListener('message', listener);
+  return () => channel?.removeEventListener('message', listener);
 }

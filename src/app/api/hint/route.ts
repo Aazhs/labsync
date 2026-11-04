@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createRateLimiter, getClientIp } from '@/lib/rateLimit';
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
 const OPENAI_KEY = process.env.OPENAI_API_KEY || '';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 const SYSTEM_PROMPT = `You are the LabSync AI Lab Assistant — a patient, Socratic coding tutor for college students learning to program.
 
@@ -21,9 +24,10 @@ You are NOT an answer engine. You are a debugging companion.`;
 
 async function getHintFromGemini(messages: { role: string; content: string }[]) {
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`,
     {
       method: 'POST',
+      signal: AbortSignal.timeout(15_000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
@@ -51,12 +55,13 @@ async function getHintFromGemini(messages: { role: string; content: string }[]) 
 async function getHintFromOpenAI(messages: { role: string; content: string }[]) {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
+    signal: AbortSignal.timeout(15_000),
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${OPENAI_KEY}`,
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: OPENAI_MODEL,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         ...messages,
@@ -108,39 +113,66 @@ function getLocalHint(code: string, error: string, language: string): string {
     (error.match(/line (\d+)/i)?.[1] || 'the indicated position') + "?";
 }
 
+const isRateLimited = createRateLimiter(20, 60_000);
+
+const MAX_CODE_CHARS = 20_000;
+const MAX_ERROR_CHARS = 4_000;
+const MAX_HISTORY = 10;
+const MAX_HISTORY_MESSAGE_CHARS = 4_000;
+
+type ChatMessage = { role: 'user' | 'assistant'; content: string };
+
+// Only accept plain user/assistant turns from the client so a request can't inject
+// its own system instructions, and keep the conversation small.
+function sanitizeHistory(history: unknown): ChatMessage[] {
+  if (!Array.isArray(history)) return [];
+  return history
+    .filter(
+      (m): m is ChatMessage =>
+        m &&
+        (m.role === 'user' || m.role === 'assistant') &&
+        typeof m.content === 'string'
+    )
+    .slice(-MAX_HISTORY)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_MESSAGE_CHARS) }));
+}
+
 export async function POST(request: NextRequest) {
-  try {
-    const { code, error, language, history = [] } = await request.json();
-
-    if (!code) {
-      return NextResponse.json({ error: 'Missing code' }, { status: 400 });
-    }
-
-    const userMessage = `My ${language} code:\n\`\`\`${language}\n${code}\n\`\`\`\n\nError I'm getting:\n${error || 'No error, but my code is not producing the expected output.'}`;
-    
-    const messages = [
-      ...history,
-      { role: 'user', content: userMessage },
-    ];
-
-    let hint: string;
-
-    if (GEMINI_KEY) {
-      hint = await getHintFromGemini(messages);
-    } else if (OPENAI_KEY) {
-      hint = await getHintFromOpenAI(messages);
-    } else {
-      // Local rule-based fallback
-      hint = getLocalHint(code, error || '', language);
-    }
-
-    return NextResponse.json({ hint });
-  } catch (error: unknown) {
-    const err = error as Error;
-    console.error('Hint error:', err);
+  if (isRateLimited(getClientIp(request.headers))) {
     return NextResponse.json(
-      { error: err.message || 'Failed to generate hint' },
-      { status: 500 }
+      { error: 'Too many hint requests. Take a moment to try the last hint first.' },
+      { status: 429 }
     );
   }
+
+  let body: { code?: unknown; error?: unknown; language?: unknown; history?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Request body must be JSON.' }, { status: 400 });
+  }
+
+  const code = typeof body.code === 'string' ? body.code.slice(0, MAX_CODE_CHARS) : '';
+  const error = typeof body.error === 'string' ? body.error.slice(0, MAX_ERROR_CHARS) : '';
+  const language = typeof body.language === 'string' ? body.language.slice(0, 40) : 'code';
+
+  if (!code.trim()) {
+    return NextResponse.json({ error: 'Missing code' }, { status: 400 });
+  }
+
+  const userMessage = `My ${language} code:\n\`\`\`\n${code}\n\`\`\`\n\nError I'm getting:\n${error || 'No error, but my code is not producing the expected output.'}`;
+  const messages: ChatMessage[] = [...sanitizeHistory(body.history), { role: 'user', content: userMessage }];
+
+  try {
+    if (GEMINI_KEY) {
+      return NextResponse.json({ hint: await getHintFromGemini(messages) });
+    }
+    if (OPENAI_KEY) {
+      return NextResponse.json({ hint: await getHintFromOpenAI(messages) });
+    }
+  } catch (err) {
+    console.error('AI hint provider failed, using rule-based hint:', err);
+  }
+
+  return NextResponse.json({ hint: getLocalHint(code, error, language) });
 }

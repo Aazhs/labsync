@@ -237,6 +237,9 @@ export type HintMessage = {
 export type SessionMode = 'follow' | 'practice';
 
 interface IDEStore {
+  /** Room code whose code is currently in the workspace (null = personal practice). */
+  workspaceRoom: string | null;
+
   // Editor state
   code: string;
   language: Language;
@@ -327,6 +330,8 @@ interface IDEStore {
   clearHints: () => void;
   setIsHintLoading: (loading: boolean) => void;
   resetToTemplate: () => void;
+  /** Replace the workspace with a lab's language template, using `entryContent` as the main file. */
+  loadWorkspace: (lang: Language, entryContent: string | null, roomCode: string | null) => void;
 }
 
 const initialFiles = getDefaultFiles(LANGUAGES[0]);
@@ -357,6 +362,8 @@ const safeLocalStorage = {
 export const useIDEStore = create<IDEStore>()(
   persist(
     (set, get) => ({
+  workspaceRoom: null,
+
   // Editor state
   code: LANGUAGES[0].defaultCode,
   language: LANGUAGES[0],
@@ -506,7 +513,7 @@ export const useIDEStore = create<IDEStore>()(
   createFile: (name, content = '') => {
     const cleanName = name.trim();
     if (!cleanName) return '';
-    const newId = `file-${Date.now()}`;
+    const newId = `file-${crypto.randomUUID()}`;
     const fileLang = getFileLanguage(cleanName);
     const newFile: ProjectFile = {
       id: newId,
@@ -574,11 +581,32 @@ export const useIDEStore = create<IDEStore>()(
       code: defaultFiles[0].content,
     });
   },
+  loadWorkspace: (lang, entryContent, roomCode) => {
+    const files = getDefaultFiles(lang);
+    if (entryContent) files[0] = { ...files[0], content: entryContent };
+    set({
+      workspaceRoom: roomCode,
+      language: lang,
+      files,
+      activeFileId: files[0].id,
+      openFileIds: lang.name === 'web' ? files.map((f) => f.id) : [files[0].id],
+      code: files[0].content,
+      showLivePreview: false,
+      syntaxProblems: [],
+      targetPosition: null,
+      output: [],
+      lastResult: null,
+      stdin: '',
+      isWaitingForInput: false,
+      hintMessages: [],
+    });
+  },
 }),
     {
       name: 'labsync_ide_workspace',
       storage: createJSONStorage(() => safeLocalStorage),
       partialize: (state) => ({
+        workspaceRoom: state.workspaceRoom,
         code: state.code,
         language: state.language,
         fontSize: state.fontSize,

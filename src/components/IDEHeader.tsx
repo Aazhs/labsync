@@ -38,6 +38,14 @@ interface IDEHeaderProps {
   role?: string | null;
   lobbyStatus?: 'active' | 'paused' | 'completed';
   onStatusChange?: (status: 'active' | 'paused' | 'completed') => void;
+  /** Students can't run code while the instructor has paused the lab. */
+  runLocked?: boolean;
+  /** Teacher only: the lab's follow mode when the IDE opened. */
+  initialBroadcast?: boolean;
+  /** Teacher only: false until the editor holds this lab's code, so nothing stale is broadcast. */
+  broadcastReady?: boolean;
+  /** Extra controls rendered on the right (e.g. student raise-hand). */
+  extraControls?: React.ReactNode;
 }
 
 export default function IDEHeader({
@@ -49,6 +57,10 @@ export default function IDEHeader({
   role,
   lobbyStatus = 'active',
   onStatusChange,
+  runLocked = false,
+  initialBroadcast = false,
+  broadcastReady = false,
+  extraControls,
 }: IDEHeaderProps) {
   const {
     code,
@@ -71,65 +83,61 @@ export default function IDEHeader({
 
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [broadcastMode, setBroadcastMode] = useState(true); // Default to Broadcast Mode as requested
+  // null until the teacher picks a mode; until then follow the lab's current setting
+  const [broadcastChoice, setBroadcastChoice] = useState<boolean | null>(null);
+  const broadcastMode = broadcastChoice ?? initialBroadcast;
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState(false);
+  const [copiedRoom, setCopiedRoom] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const { theme, toggle: toggleTheme } = useTheme();
 
   // Auto-broadcast teacher code continuously when in Broadcast Mode
   useEffect(() => {
-    if (role !== 'teacher' || !roomCode) return;
-
-    if (!broadcastMode) {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-      setIsSyncing(false);
-      return;
-    }
-
-    setIsSyncing(true);
-
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
+    if (role !== 'teacher' || !roomCode || !broadcastReady || !broadcastMode) return;
 
     debounceTimerRef.current = setTimeout(async () => {
+      setIsSyncing(true);
       try {
         await updateLobbyBroadcast(roomCode, {
           broadcast_code: code,
           follow_mode: true,
           broadcast_enabled: true,
         });
+        setSyncError(false);
       } catch (err) {
         console.error('Auto-broadcast error:', err);
+        setSyncError(true);
       } finally {
         setIsSyncing(false);
       }
-    }, 450);
+    }, 600);
 
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [code, broadcastMode, roomCode, role]);
+  }, [code, broadcastMode, broadcastReady, roomCode, role]);
 
   const handleToggleBroadcastMode = async (enableBroadcast: boolean) => {
-    setBroadcastMode(enableBroadcast);
-    if (!roomCode) return;
+    setBroadcastChoice(enableBroadcast);
+    if (!roomCode || !broadcastReady) return;
 
-    if (enableBroadcast) {
-      setIsSyncing(true);
-      await updateLobbyBroadcast(roomCode, {
-        broadcast_code: code,
-        follow_mode: true,
-        broadcast_enabled: true,
-      });
+    setIsSyncing(true);
+    try {
+      await updateLobbyBroadcast(
+        roomCode,
+        enableBroadcast
+          ? { broadcast_code: code, follow_mode: true, broadcast_enabled: true }
+          : { follow_mode: false, broadcast_enabled: false }
+      );
+      setSyncError(false);
+    } catch (err) {
+      console.error('Broadcast toggle error:', err);
+      setSyncError(true);
+    } finally {
       setIsSyncing(false);
-    } else {
-      await updateLobbyBroadcast(roomCode, {
-        follow_mode: false,
-        broadcast_enabled: false,
-      });
     }
   };
 
@@ -203,12 +211,13 @@ export default function IDEHeader({
               }}
               onClick={() => {
                 navigator.clipboard.writeText(roomCode);
-                alert(`Room code #${roomCode} copied to clipboard!`);
+                setCopiedRoom(true);
+                setTimeout(() => setCopiedRoom(false), 1500);
               }}
               title="Click to copy 6-digit room code"
             >
-              <Users size={11} />
-              <span>ROOM #{roomCode}</span>
+              {copiedRoom ? <Check size={11} /> : <Users size={11} />}
+              <span>{copiedRoom ? 'COPIED' : `ROOM #${roomCode}`}</span>
               {studentName && (
                 <span style={{ color: 'var(--text-secondary)', fontWeight: 500, textTransform: 'none' }}>
                   ({studentName}{prn ? ` • PRN: ${prn}` : ''})
@@ -429,12 +438,12 @@ export default function IDEHeader({
                       fontSize: 10,
                       fontWeight: 700,
                       fontFamily: 'var(--font-mono)',
-                      color: isSyncing ? 'var(--accent-info)' : 'var(--accent-success-light)',
+                      color: syncError ? 'var(--accent-danger)' : isSyncing ? 'var(--accent-info)' : 'var(--accent-success-light)',
                       letterSpacing: '0.02em',
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {isSyncing ? '⚡ Syncing...' : '● Live Stream'}
+                    {syncError ? '⚠ Sync failed' : isSyncing ? '⚡ Syncing...' : '● Live Stream'}
                   </span>
                 ) : (
                   <span
@@ -458,9 +467,13 @@ export default function IDEHeader({
             <select
               className="select"
               value={language.id}
+              disabled={Boolean(roomCode)}
+              title={roomCode ? 'The language is set by your lab' : 'Language'}
               onChange={(e) => {
                 const lang = LANGUAGES.find((l) => l.id === Number(e.target.value));
-                if (lang) setLanguage(lang);
+                if (!lang) return;
+                if (!window.confirm(`Switch to ${lang.label}? This replaces your current files with a new template.`)) return;
+                setLanguage(lang);
               }}
               style={{ borderRadius: 4, height: 32, fontSize: 12 }}
             >
@@ -494,10 +507,12 @@ export default function IDEHeader({
             <button
               className="btn btn-success"
               onClick={() => onRun()}
-              style={{ borderRadius: 4, height: 32, fontSize: 12, fontWeight: 600 }}
+              disabled={runLocked}
+              title={runLocked ? 'Your instructor has paused the lab' : 'Run (⌘↵)'}
+              style={{ borderRadius: 4, height: 32, fontSize: 12, fontWeight: 600, opacity: runLocked ? 0.5 : 1 }}
             >
-              <Play size={13} fill="white" />
-              {language.name === 'web' ? 'Refresh Preview' : 'Run Code'}
+              {runLocked ? <Lock size={13} /> : <Play size={13} fill="white" />}
+              {runLocked ? 'Paused' : language.name === 'web' ? 'Refresh Preview' : 'Run Code'}
             </button>
           )}
 
@@ -549,6 +564,7 @@ export default function IDEHeader({
 
         {/* Right: Tools */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {extraControls}
           {/* Font size */}
           <div style={{
             display: 'flex',

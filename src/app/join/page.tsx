@@ -40,12 +40,15 @@ function JoinContent() {
     setIsVerifyingCode(true);
     try {
       const lobby = await getLobbyByCode(code);
-      if (lobby) {
+      if (lobby?.status === 'completed') {
+        setVerifiedLobby(null);
+        setError('This lab session has already ended.');
+      } else if (lobby) {
         setVerifiedLobby(lobby);
         setError(null);
       } else {
         setVerifiedLobby(null);
-        setError(`No active lab session found with code "${code}".`);
+        setError(`No lab found with code "${code}".`);
       }
     } catch {
       setError('Failed to verify room code.');
@@ -59,13 +62,18 @@ function JoinContent() {
       let isSubscribed = true;
       getLobbyByCode(codeParam).then((lobby) => {
         if (!isSubscribed) return;
-        if (lobby) {
+        if (lobby?.status === 'completed') {
+          setVerifiedLobby(null);
+          setError('This lab session has already ended.');
+        } else if (lobby) {
           setVerifiedLobby(lobby);
           setError(null);
         } else {
           setVerifiedLobby(null);
-          setError(`No active lab session found with code "${codeParam}".`);
+          setError(`No lab found with code "${codeParam}".`);
         }
+      }).catch(() => {
+        if (isSubscribed) setError('Could not reach the lab server. Check your connection.');
       });
       return () => {
         isSubscribed = false;
@@ -172,14 +180,8 @@ function JoinContent() {
     setError(null);
 
     try {
-      const res = await joinLobby(code, studentName.trim(), studentPrn.trim());
-      if (!res.success) {
-        setError(res.error || 'Failed to join lab.');
-        setLoading(false);
-        return;
-      }
-
-      router.push(`/ide?room=${code}&student=${encodeURIComponent(studentName.trim())}&prn=${encodeURIComponent(studentPrn.trim())}`);
+      await joinLobby(code, studentName.trim(), studentPrn.trim());
+      router.push(`/ide?room=${code}`);
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'An unexpected error occurred';
       setError(errorMsg);

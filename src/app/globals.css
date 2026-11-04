@@ -206,7 +206,7 @@ body {
    ═══════════════════════════════════════════ */
 .ide-container {
   display: grid;
-  grid-template-rows: var(--header-height) 1fr 24px;
+  grid-template-rows: var(--header-height) auto 1fr 24px;
   grid-template-columns: 48px 1fr;
   height: 100vh;
   width: 100vw;
@@ -227,9 +227,16 @@ body {
   height: var(--header-height);
 }
 
+.ide-notices {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+}
+
 .ide-sidebar {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 3;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -243,7 +250,7 @@ body {
 
 #ide-main {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 3;
   display: flex;
   overflow: hidden;
   position: relative;
@@ -254,7 +261,7 @@ body {
 
 .status-bar {
   grid-column: 1 / -1;
-  grid-row: 3;
+  grid-row: 4;
   display: flex;
   align-items: center;
   justify-content: space-between;

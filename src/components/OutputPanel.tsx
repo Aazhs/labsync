@@ -25,7 +25,6 @@ export default function OutputPanel({ onRun }: OutputPanelProps) {
     activeOutputTab,
     syntaxProblems,
     language,
-    stdin,
     isRunning,
     isWaitingForInput,
     terminalHistory,

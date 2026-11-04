@@ -16,15 +16,26 @@ import {
   ShieldCheck,
   GraduationCap,
   LogOut,
+  Mail,
+  CalendarCheck,
+  Zap,
+  Clock,
+  Eye,
 } from 'lucide-react';
 import JoinLabModal from '@/components/JoinLabModal';
 import CreateLobbyModal from '@/components/CreateLobbyModal';
 import TeacherAuthModal from '@/components/TeacherAuthModal';
 import {
-  getTeacherSession,
+  restoreTeacherSession,
   logoutTeacher,
   TeacherUser,
 } from '@/lib/teacherAuth';
+
+/* TODO: replace with the real team contact details before sharing publicly */
+const CONTACT = {
+  email: 'team@labsync.example',
+  demoSubject: 'LabSync demo request',
+};
 
 /* ─── Scroll reveal hook ─── */
 function useScrollReveal() {
@@ -132,7 +143,15 @@ export default function LandingPage() {
   const [teacher, setTeacher] = useState<TeacherUser | null>(null);
 
   useEffect(() => {
-    setTeacher(getTeacherSession());
+    let cancelled = false;
+    restoreTeacherSession()
+      .then((t) => {
+        if (!cancelled) setTeacher(t);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Observe stats section
@@ -160,6 +179,19 @@ export default function LandingPage() {
     { num: '05', title: 'Error Classification', desc: 'Three-tier engine: Syntax → Logic → Conceptual. Every error diagnosed, not just displayed.' },
     { num: '06', title: 'Academic Integrity', desc: 'AST-level similarity detection. AI-generated code flagging against student history.' },
   ];
+
+  const benefits = {
+    students: [
+      { icon: Zap, text: 'Start coding in seconds — a link, a PIN and your PRN. Nothing to install.' },
+      { icon: Sparkles, text: 'Get hints that make you think, not answers that make you copy.' },
+      { icon: Clock, text: 'Less waiting for help — your error is already diagnosed when the professor arrives.' },
+    ],
+    faculty: [
+      { icon: Eye, text: 'See every student\'s progress and errors across the whole lab at once.' },
+      { icon: Users, text: 'Broadcast your code live with Follow Mode, then switch to independent practice.' },
+      { icon: ShieldCheck, text: 'Spot copied or AI-generated code with similarity detection.' },
+    ],
+  };
 
   const steps = [
     'Student opens the zero-setup cloud IDE — no local installation required.',
@@ -194,6 +226,14 @@ export default function LandingPage() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <ThemeToggle />
+
+          <a
+            href="#contact"
+            className="btn btn-ghost"
+            style={{ height: 32, fontSize: 12, padding: '0 10px', borderRadius: 4, textDecoration: 'none' }}
+          >
+            Contact
+          </a>
 
           {/* Student Join Button */}
           <button
@@ -344,6 +384,24 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ─── Value Proposition ─── */}
+      <section style={{ padding: '40px 48px 8px', textAlign: 'center' }}>
+        <RevealDiv>
+          <p style={{
+            fontSize: 20,
+            fontWeight: 700,
+            letterSpacing: '-0.02em',
+            maxWidth: 760,
+            margin: '0 auto',
+            color: 'var(--text-primary)',
+            lineHeight: 1.4,
+          }}>
+            LabSync turns a 60-student lab into one you can actually see:
+            <span className="hero-accent"> zero setup for students, instant diagnosis for professors.</span>
+          </p>
+        </RevealDiv>
+      </section>
+
       {/* ─── IDE Preview ─── */}
       <section className="preview-section">
         <RevealDiv>
@@ -435,6 +493,38 @@ export default function LandingPage() {
         </RevealDiv>
       </section>
 
+      {/* ─── Benefits ─── */}
+      <section style={{ padding: '60px 48px' }}>
+        <RevealDiv style={{ textAlign: 'center', marginBottom: 40 }}>
+          <h2 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.03em' }}>
+            Built for both sides of the lab.
+          </h2>
+        </RevealDiv>
+        <RevealDiv delay={100}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+            gap: 20,
+            maxWidth: 960,
+            margin: '0 auto',
+          }}>
+            {([['For students', benefits.students], ['For faculty', benefits.faculty]] as const).map(([title, items]) => (
+              <div key={title} className="feature-cell" style={{ border: '1px solid var(--border)', borderRadius: 6 }}>
+                <div className="feature-title" style={{ marginBottom: 16 }}>{title}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {items.map(({ icon: Icon, text }, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                      <Icon size={16} style={{ color: 'var(--brand-light)', flexShrink: 0, marginTop: 2 }} />
+                      <p className="feature-desc" style={{ margin: 0 }}>{text}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </RevealDiv>
+      </section>
+
       {/* ─── How it Works ─── */}
       <section className="steps-section">
         <RevealDiv>
@@ -498,11 +588,47 @@ export default function LandingPage() {
         </section>
       </RevealDiv>
 
+      {/* ─── Contact ─── */}
+      <section id="contact" style={{
+        padding: '60px 48px',
+        textAlign: 'center',
+        borderTop: '1px solid var(--border)',
+      }}>
+        <RevealDiv>
+          <h2 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 12 }}>
+            Want LabSync in your lab?
+          </h2>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', maxWidth: 440, margin: '0 auto 24px' }}>
+            Book a quick demo or get in touch — we&apos;ll help you run your first session.
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <a
+              className="btn btn-primary"
+              href={`mailto:${CONTACT.email}?subject=${encodeURIComponent(CONTACT.demoSubject)}`}
+              style={{ padding: '11px 24px', fontSize: 14, textDecoration: 'none' }}
+            >
+              <CalendarCheck size={16} />
+              Request a Demo
+            </a>
+            <a
+              className="btn btn-secondary"
+              href={`mailto:${CONTACT.email}`}
+              style={{ padding: '11px 24px', fontSize: 14, textDecoration: 'none' }}
+            >
+              <Mail size={16} />
+              {CONTACT.email}
+            </a>
+          </div>
+        </RevealDiv>
+      </section>
+
       {/* ─── Footer ─── */}
       <footer className="landing-footer">
         <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>LabSync</span>
         {' · '}
         Diagnostic intelligence for college programming labs
+        {' · '}
+        <a href={`mailto:${CONTACT.email}`} style={{ color: 'inherit' }}>{CONTACT.email}</a>
       </footer>
 
       {/* ─── Modals ─── */}
