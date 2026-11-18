@@ -403,7 +403,16 @@ const POLL_SLOW_MS = 8000;
  * whenever the tab becomes visible again, catches anything a push missed, so a screen never
  * stays stale until the user refreshes.
  */
-export function subscribeToLobbyUpdates(roomCode: string, onChange: (change: LobbyChange) => void): () => void {
+export function subscribeToLobbyUpdates(
+  roomCode: string,
+  onChange: (change: LobbyChange) => void,
+  /**
+   * Also listen to the student roster. Only the lab's teacher may read it, and Supabase Realtime
+   * silently delivers nothing on a channel that includes a table the subscriber can't read, so
+   * student screens must leave this off.
+   */
+  options: { roster?: boolean } = {}
+): () => void {
   if (typeof window === 'undefined') return () => {};
 
   // Coalesce bursts of "something changed" into one refetch.
@@ -421,9 +430,9 @@ export function subscribeToLobbyUpdates(roomCode: string, onChange: (change: Lob
 
   const supabase = getSupabase();
   if (supabase) {
-    const channel = supabase
-      .channel(`lobby-room-${roomCode}-${crypto.randomUUID()}`)
-      .on(
+    let channel = supabase.channel(`lobby-room-${roomCode}-${crypto.randomUUID()}`);
+    if (options.roster) {
+      channel = channel.on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'lab_students', filter: `room_code=eq.${roomCode}` },
         (payload) => {
@@ -432,7 +441,9 @@ export function subscribeToLobbyUpdates(roomCode: string, onChange: (change: Lob
           if (row?.id && row.room_code) onChange({ table: 'lab_students', student: row, deleted });
           else refetch();
         }
-      )
+      );
+    }
+    channel = channel
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'lab_lobbies', filter: `room_code=eq.${roomCode}` },

@@ -172,7 +172,7 @@ export default function DashboardPage() {
         // Keep lab settings (sharing, paused) fresh too.
         if (teacher) listTeacherLobbies(teacher).then(setLobbies).catch(() => {});
       }
-    });
+    }, { roster: true });
     return () => {
       cancelled = true;
       unsubscribe();
