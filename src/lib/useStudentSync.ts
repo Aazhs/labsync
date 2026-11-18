@@ -9,7 +9,8 @@ import {
   updateStudentState,
 } from './lobbyService';
 
-const SNAPSHOT_DEBOUNCE_MS = 2500;
+/** Short enough to feel live on the instructor's screen, long enough not to send every keystroke. */
+const SNAPSHOT_DEBOUNCE_MS = 500;
 const HEARTBEAT_MS = 60_000;
 /** Consecutive failed runs before a student is flagged as stuck. */
 const STUCK_AFTER_FAILURES = 3;

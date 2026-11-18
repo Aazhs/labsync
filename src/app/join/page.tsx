@@ -1,510 +1,177 @@
 'use client';
 
-import { Suspense, useState, useRef, useEffect, useCallback } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { getLobbyByCode, joinLobby, LabLobby } from '@/lib/lobbyService';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  ArrowRight,
-  User,
-  Hash,
-  AlertCircle,
-  CheckCircle2,
-  ArrowLeft,
-} from 'lucide-react';
+  getLobbyByCode,
+  getStudentSession,
+  joinLobby,
+  LabLobby,
+  StudentSession,
+} from '@/lib/lobbyService';
+
+type Lookup =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'found'; lobby: LabLobby }
+  | { state: 'error'; message: string };
 
 function JoinContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const codeParam = searchParams.get('code') || '';
+  const initialCode = (searchParams.get('code') || '').replace(/\D/g, '').slice(0, 6);
 
-  const [digits, setDigits] = useState<string[]>(() =>
-    codeParam && codeParam.length === 6
-      ? codeParam.split('').slice(0, 6)
-      : ['', '', '', '', '', '']
-  );
-  const [studentName, setStudentName] = useState('');
-  const [studentPrn, setStudentPrn] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [code, setCode] = useState(initialCode);
+  const [lookup, setLookup] = useState<Lookup>({ state: 'idle' });
+  const [name, setName] = useState('');
+  const [prn, setPrn] = useState('');
+  const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [verifiedLobby, setVerifiedLobby] = useState<LabLobby | null>(null);
-  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
+  const [existing, setExisting] = useState<StudentSession | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const codeRef = useRef<HTMLInputElement>(null);
 
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
-
-  const verifyCode = useCallback(async (code: string) => {
-    if (code.length !== 6) {
-      setVerifiedLobby(null);
-      return;
-    }
-    setIsVerifyingCode(true);
-    try {
-      const lobby = await getLobbyByCode(code);
-      if (lobby?.status === 'completed') {
-        setVerifiedLobby(null);
-        setError('This lab session has already ended.');
-      } else if (lobby) {
-        setVerifiedLobby(lobby);
-        setError(null);
-      } else {
-        setVerifiedLobby(null);
-        setError(`No lab found with code "${code}".`);
+  // Look the lab up as soon as six digits are in.
+  useEffect(() => {
+    if (code.length !== 6) return;
+    let cancelled = false;
+    const run = async () => {
+      setLookup({ state: 'checking' });
+      try {
+        const lobby = await getLobbyByCode(code);
+        if (cancelled) return;
+        if (!lobby) setLookup({ state: 'error', message: `No lab uses the code ${code}. Check it with your instructor.` });
+        else if (lobby.status === 'completed') setLookup({ state: 'error', message: 'This lab has ended. Ask your instructor for the new code.' });
+        else {
+          setLookup({ state: 'found', lobby });
+          setExisting(getStudentSession(code));
+          requestAnimationFrame(() => nameRef.current?.focus());
+        }
+      } catch {
+        if (!cancelled) setLookup({ state: 'error', message: 'Could not reach LabSync. Check your internet connection and try again.' });
       }
-    } catch {
-      setError('Failed to verify room code.');
-    } finally {
-      setIsVerifyingCode(false);
-    }
-  }, []);
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
 
   useEffect(() => {
-    if (codeParam && codeParam.length === 6) {
-      let isSubscribed = true;
-      getLobbyByCode(codeParam).then((lobby) => {
-        if (!isSubscribed) return;
-        if (lobby?.status === 'completed') {
-          setVerifiedLobby(null);
-          setError('This lab session has already ended.');
-        } else if (lobby) {
-          setVerifiedLobby(lobby);
-          setError(null);
-        } else {
-          setVerifiedLobby(null);
-          setError(`No lab found with code "${codeParam}".`);
-        }
-      }).catch(() => {
-        if (isSubscribed) setError('Could not reach the lab server. Check your connection.');
-      });
-      return () => {
-        isSubscribed = false;
-      };
-    } else if (inputRefs.current[0]) {
-      inputRefs.current[0].focus();
-    }
-  }, [codeParam]);
+    if (!initialCode) codeRef.current?.focus();
+  }, [initialCode]);
 
-  const handleDigitChange = (index: number, value: string) => {
-    const clean = value.replace(/\D/g, '');
-    if (!clean) {
-      const nextDigits = [...digits];
-      nextDigits[index] = '';
-      setDigits(nextDigits);
-      setVerifiedLobby(null);
-      return;
-    }
+  const lobby = lookup.state === 'found' ? lookup.lobby : null;
 
-    const nextDigits = [...digits];
-    if (clean.length === 1) {
-      nextDigits[index] = clean;
-      setDigits(nextDigits);
-      if (index < 5 && inputRefs.current[index + 1]) {
-        inputRefs.current[index + 1]?.focus();
-      }
-    } else {
-      const pastedChars = clean.slice(0, 6).split('');
-      for (let i = 0; i < 6; i++) {
-        nextDigits[i] = pastedChars[i] || '';
-      }
-      setDigits(nextDigits);
-      const lastIndex = Math.min(pastedChars.length, 5);
-      inputRefs.current[lastIndex]?.focus();
-    }
-
-    const fullCode = nextDigits.join('');
-    if (fullCode.length === 6) {
-      verifyCode(fullCode);
-    } else {
-      setVerifiedLobby(null);
-    }
-  };
-
-  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace') {
-      if (!digits[index] && index > 0) {
-        const nextDigits = [...digits];
-        nextDigits[index - 1] = '';
-        setDigits(nextDigits);
-        inputRefs.current[index - 1]?.focus();
-        setVerifiedLobby(null);
-      } else {
-        const nextDigits = [...digits];
-        nextDigits[index] = '';
-        setDigits(nextDigits);
-        setVerifiedLobby(null);
-      }
-    } else if (e.key === 'ArrowLeft' && index > 0) {
-      inputRefs.current[index - 1]?.focus();
-    } else if (e.key === 'ArrowRight' && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handlePaste = (e: React.ClipboardEvent) => {
+  const handleJoin = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (!pasted) return;
-
-    const nextDigits = ['', '', '', '', '', ''];
-    pasted.split('').forEach((char, i) => {
-      if (i < 6) nextDigits[i] = char;
-    });
-    setDigits(nextDigits);
-
-    const focusIdx = Math.min(pasted.length, 5);
-    inputRefs.current[focusIdx]?.focus();
-
-    if (pasted.length === 6) {
-      verifyCode(pasted);
-    }
-  };
-
-  const handleJoin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const code = digits.join('');
-    if (code.length !== 6) {
-      setError('Please enter all 6 digits of the room code.');
-      return;
-    }
-
-    if (!studentName.trim()) {
-      setError('Please enter your full name.');
-      return;
-    }
-
-    if (!studentPrn.trim()) {
-      setError('Please enter your college PRN (e.g. 202501040430).');
-      return;
-    }
-
-    setLoading(true);
+    if (!lobby) return;
+    if (!name.trim()) return setError('Enter your full name so your instructor knows who you are.');
+    if (!prn.trim()) return setError('Enter your PRN.');
+    setJoining(true);
     setError(null);
-
     try {
-      await joinLobby(code, studentName.trim(), studentPrn.trim());
+      await joinLobby(code, name, prn);
       router.push(`/ide?room=${code}`);
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : 'An unexpected error occurred';
-      setError(errorMsg);
-      setLoading(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not join the lab.');
+      setJoining(false);
     }
   };
-
-  const fullCode = digits.join('');
-  const isCodeComplete = fullCode.length === 6;
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'var(--bg-primary)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px 16px',
-        position: 'relative',
-      }}
-    >
-      {/* Top back button */}
-      <button
-        onClick={() => router.push('/')}
-        className="btn btn-ghost"
-        style={{
-          position: 'absolute',
-          top: 20,
-          left: 24,
-          fontSize: 12,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-        }}
-      >
-        <ArrowLeft size={14} />
-        Back to Home
-      </button>
+    <div className="auth">
+      <Link href="/" className="auth-brand">
+        <Image src="/logo.png" alt="" width={28} height={28} />
+        LabSync
+      </Link>
 
-      <div
-        style={{
-          maxWidth: 460,
-          width: '100%',
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-          boxShadow: '0 20px 48px rgba(0, 0, 0, 0.8)',
-          overflow: 'hidden',
-        }}
-      >
-        {/* Header */}
-        <div
-          style={{
-            padding: '24px 24px 16px',
-            borderBottom: '1px solid var(--border)',
-            background: 'var(--bg-tertiary)',
-            textAlign: 'center',
-          }}
-        >
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <Image
-              src="/logo.png"
-              alt="LabSync"
-              width={32}
-              height={32}
-              style={{ borderRadius: 4 }}
-            />
-            <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
-              LabSync
-            </span>
-          </div>
-          <h1 style={{ margin: '0 0 6px', fontSize: 19, fontWeight: 700, color: 'var(--text-primary)' }}>
-            Join Classroom Lab
-          </h1>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
-            Enter the 6-digit access code provided by your instructor
-          </p>
-        </div>
+      <form className="auth-card" onSubmit={handleJoin} noValidate>
+        <h1 className="auth-title">Join a lab</h1>
+        <p className="auth-sub">Enter the six-digit code your instructor is showing.</p>
 
-        <form onSubmit={handleJoin} style={{ padding: '24px' }}>
-          {error && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '10px 12px',
-                borderRadius: 4,
-                background: 'rgba(224, 74, 59, 0.1)',
-                border: '1px solid rgba(224, 74, 59, 0.3)',
-                color: 'var(--accent-danger-light)',
-                fontSize: 12,
-                marginBottom: 18,
-              }}
-            >
-              <AlertCircle size={15} style={{ flexShrink: 0 }} />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {/* 6-Digit PIN boxes */}
-          <div style={{ marginBottom: 20 }}>
-            <label
-              style={{
-                display: 'block',
-                fontSize: 11,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                color: 'var(--text-secondary)',
-                marginBottom: 8,
-                textAlign: 'center',
-              }}
-            >
-              6-Digit Room Code
-            </label>
-            <div
-              className="room-code-grid"
-              onPaste={handlePaste}
-            >
-              {digits.map((digit, idx) => (
-                <input
-                  key={idx}
-                  ref={(el) => {
-                    inputRefs.current[idx] = el;
-                  }}
-                  className={`room-code-digit-input ${digit ? 'filled' : ''}`}
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={1}
-                  value={digit}
-                  onChange={(e) => handleDigitChange(idx, e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(idx, e)}
-                  autoComplete="off"
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Verified Lobby Banner */}
-          {verifiedLobby && (
-            <div
-              className="animate-fade-in"
-              style={{
-                padding: '12px',
-                borderRadius: 4,
-                background: 'rgba(61, 140, 111, 0.1)',
-                border: '1px solid rgba(61, 140, 111, 0.3)',
-                marginBottom: 20,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--accent-success)', marginBottom: 4 }}>
-                <CheckCircle2 size={14} />
-                <span style={{ fontSize: 12, fontWeight: 700 }}>Lab Session Found</span>
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>
-                {verifiedLobby.title}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: 'var(--text-secondary)' }}>
-                <span>Course: {verifiedLobby.course}</span>
-                <span>Host: {verifiedLobby.teacher_name}</span>
-                <span style={{ textTransform: 'uppercase', color: 'var(--brand-light)' }}>{verifiedLobby.language}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Student Full Name */}
-          <div style={{ marginBottom: 16 }}>
-            <label
-              style={{
-                display: 'block',
-                fontSize: 11,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                color: 'var(--text-secondary)',
-                marginBottom: 6,
-              }}
-            >
-              Student Full Name
-            </label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="text"
-                placeholder="e.g. Aarsh Joshi"
-                value={studentName}
-                onChange={(e) => setStudentName(e.target.value)}
-                style={{
-                  width: '100%',
-                  height: 40,
-                  padding: '0 12px 0 34px',
-                  borderRadius: 4,
-                  background: 'var(--bg-tertiary)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text-primary)',
-                  fontSize: 13,
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                }}
-              />
-              <User
-                size={14}
-                style={{
-                  position: 'absolute',
-                  left: 11,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--text-muted)',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Student PRN */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                College PRN
-              </label>
-              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                e.g. 202501040430
-              </span>
-            </div>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="text"
-                placeholder="e.g. 202501040430"
-                value={studentPrn}
-                onChange={(e) => setStudentPrn(e.target.value)}
-                style={{
-                  width: '100%',
-                  height: 40,
-                  padding: '0 12px 0 34px',
-                  borderRadius: 4,
-                  background: 'var(--bg-tertiary)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text-primary)',
-                  fontFamily: 'var(--font-mono, monospace)',
-                  fontSize: 13,
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                }}
-              />
-              <Hash
-                size={14}
-                style={{
-                  position: 'absolute',
-                  left: 11,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--brand-light)',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Submit */}
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={loading || !isCodeComplete || isVerifyingCode}
-            style={{
-              width: '100%',
-              height: 42,
-              fontSize: 13,
-              fontWeight: 600,
-              borderRadius: 4,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 7,
-              opacity: !isCodeComplete ? 0.6 : 1,
+        <label className="field">
+          <span className="field-label">Lab code</span>
+          <input
+            ref={codeRef}
+            className="input auth-code-input"
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="000000"
+            maxLength={7}
+            value={code}
+            aria-invalid={lookup.state === 'error'}
+            onChange={(e) => {
+              const next = e.target.value.replace(/\D/g, '').slice(0, 6);
+              setCode(next);
+              if (next.length !== 6) setLookup({ state: 'idle' });
+              setError(null);
             }}
-          >
-            {loading ? (
-              <>
-                <div className="loading-spinner" style={{ width: 14, height: 14 }} />
-                Connecting to Lab...
-              </>
-            ) : (
-              <>
-                Enter Live Lab
-                <ArrowRight size={15} />
-              </>
+          />
+        </label>
+
+        {lookup.state === 'checking' && <p className="auth-status">Looking up the lab…</p>}
+        {lookup.state === 'error' && <p className="form-error" role="alert">{lookup.message}</p>}
+
+        {lobby && (
+          <>
+            <div className="auth-lab">
+              <div className="auth-lab-title">{lobby.title}</div>
+              <div className="auth-lab-sub">
+                {lobby.teacher_name}
+                {lobby.status === 'paused' ? ', paused for now' : ''}
+              </div>
+            </div>
+
+            {existing && (
+              <button type="button" className="btn btn-secondary auth-btn" onClick={() => router.push(`/ide?room=${code}`)}>
+                Continue as {existing.name}
+              </button>
             )}
-          </button>
-        </form>
-      </div>
+
+            <label className="field">
+              <span className="field-label">Full name</span>
+              <input
+                ref={nameRef}
+                className="input"
+                autoComplete="name"
+                placeholder="Priya Sharma"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span className="field-label">PRN</span>
+              <input
+                className="input input-mono"
+                autoComplete="off"
+                placeholder="202501040430"
+                value={prn}
+                onChange={(e) => setPrn(e.target.value)}
+              />
+            </label>
+
+            {error && <p className="form-error" role="alert">{error}</p>}
+
+            <button type="submit" className="btn btn-primary auth-btn" disabled={joining}>
+              {joining ? 'Joining…' : 'Join lab'}
+            </button>
+          </>
+        )}
+      </form>
+
+      <p className="auth-foot">
+        Teaching this lab? <Link href="/login">Sign in as a teacher</Link>
+      </p>
     </div>
   );
 }
 
 export default function JoinPage() {
   return (
-    <Suspense
-      fallback={
-        <div
-          style={{
-            minHeight: '100vh',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'var(--bg-primary)',
-            color: 'var(--text-tertiary)',
-            fontSize: 13,
-          }}
-        >
-          <div className="loading-spinner" style={{ marginRight: 8 }} />
-          Loading...
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="auth" />}>
       <JoinContent />
     </Suspense>
   );

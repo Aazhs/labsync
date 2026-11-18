@@ -1,29 +1,22 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useIDEStore } from '@/lib/store';
 import { useTheme } from '@/lib/theme';
 import {
   Files,
-  Code2,
   BookOpen,
-  LayoutDashboard,
   CircleAlert,
-  Sparkles,
   Sun,
   Moon,
 } from 'lucide-react';
 
 export default function IDESidebar() {
-  const router = useRouter();
   const { theme, toggle: toggleTheme } = useTheme();
   const {
     showExplorer,
     toggleExplorer,
     showReferencePane,
     toggleReferencePane,
-    showHintPanel,
-    toggleHintPanel,
     showOutput,
     toggleOutput,
     setActiveOutputTab,
@@ -35,21 +28,13 @@ export default function IDESidebar() {
   const topItems = [
     {
       icon: <Files size={18} />,
-      label: 'Explorer (⌘B)',
+      label: 'Files (Ctrl + B)',
       active: showExplorer,
       onClick: toggleExplorer,
     },
     {
-      icon: <Code2 size={18} />,
-      label: 'Editor',
-      active: !showReferencePane,
-      onClick: () => {
-        if (showReferencePane) toggleReferencePane();
-      },
-    },
-    {
       icon: <BookOpen size={18} />,
-      label: 'Reference Code',
+      label: 'Instructor’s code',
       active: showReferencePane,
       onClick: toggleReferencePane,
     },
@@ -62,12 +47,6 @@ export default function IDESidebar() {
         setActiveOutputTab('problems');
         if (!showOutput) toggleOutput();
       },
-    },
-    {
-      icon: <LayoutDashboard size={18} />,
-      label: 'Lab Dashboard',
-      active: false,
-      onClick: () => router.push('/dashboard'),
     },
   ];
 
@@ -129,22 +108,6 @@ export default function IDESidebar() {
 
       {/* Bottom Tools */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, width: '100%', paddingBottom: 6 }}>
-        <button
-          className={`btn-icon tooltip-wrapper ${showHintPanel ? 'active' : ''}`}
-          data-tooltip="AI Assistant"
-          onClick={toggleHintPanel}
-          style={{
-            width: 38,
-            height: 38,
-            borderRadius: 4,
-            color: showHintPanel ? 'var(--brand-light)' : 'var(--text-muted)',
-            background: showHintPanel ? 'var(--bg-elevated)' : 'transparent',
-            borderLeft: showHintPanel ? '2px solid var(--brand)' : '2px solid transparent',
-          }}
-        >
-          <Sparkles size={18} />
-        </button>
-
         <button
           className="btn-icon tooltip-wrapper"
           data-tooltip={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}

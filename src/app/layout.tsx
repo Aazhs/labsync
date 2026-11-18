@@ -1,23 +1,26 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-geist-sans",
+const plexSans = IBM_Plex_Sans({
+  variable: "--font-plex-sans",
   subsets: ["latin"],
+  weight: "variable",
   display: "swap",
 });
 
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-geist-mono",
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "LabSync — Real-Time Code Diagnostics for Programming Labs",
-  description: "Zero-setup cloud IDE with real-time diagnostic intelligence. Automatically classifies student code errors across 60+ students simultaneously.",
+  title: "LabSync — see every student in your programming lab",
+  description:
+    "A browser IDE for college programming labs. Students join with a code; the instructor sees who is stuck, why, and what their code looks like, in real time.",
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: 'any' },
@@ -33,7 +36,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      data-theme="light"
+      className={`${plexSans.variable} ${plexMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
@@ -43,8 +47,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           dangerouslySetInnerHTML={{
             __html: `
               try {
-                var t = localStorage.getItem('labsync-theme');
-                if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+                if (localStorage.getItem('labsync-theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
               } catch(e) {}
             `,
           }}

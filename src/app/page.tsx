@@ -1,646 +1,209 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
+import { Moon, Sun } from 'lucide-react';
 import { useTheme } from '@/lib/theme';
-import {
-  ArrowRight,
-  Code2,
-  ExternalLink,
-  ChevronRight,
-  Sun,
-  Moon,
-  Users,
-  Sparkles,
-  ShieldCheck,
-  GraduationCap,
-  LogOut,
-  Mail,
-  CalendarCheck,
-  Zap,
-  Clock,
-  Eye,
-} from 'lucide-react';
-import JoinLabModal from '@/components/JoinLabModal';
-import CreateLobbyModal from '@/components/CreateLobbyModal';
-import TeacherAuthModal from '@/components/TeacherAuthModal';
-import {
-  restoreTeacherSession,
-  logoutTeacher,
-  TeacherUser,
-} from '@/lib/teacherAuth';
+import { getTeacherSession, TeacherUser } from '@/lib/teacherAuth';
 
-const CONTACT = {
-  email: 'aarshjozhi@gmail.com',
-  demoSubject: 'LabSync demo request',
-};
+const CONTACT_EMAIL = 'aarshjozhi@gmail.com';
 
-/* ─── Scroll reveal hook ─── */
-function useScrollReveal() {
-  const ref = useRef<HTMLDivElement>(null);
+type SeatState = 'coding' | 'stuck' | 'help' | 'done' | 'idle';
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+// A 6 × 5 lab room. Initials are illustrative.
+const SEATS: { initials: string; state: SeatState }[] = [
+  ['AK', 'coding'], ['PS', 'coding'], ['RM', 'done'], ['NJ', 'coding'], ['SD', 'stuck'], ['VT', 'coding'],
+  ['OG', 'coding'], ['HB', 'idle'], ['KP', 'coding'], ['MS', 'coding'], ['AR', 'coding'], ['YC', 'done'],
+  ['TL', 'coding'], ['RI', 'help'], ['DN', 'coding'], ['SB', 'coding'], ['IK', 'coding'], ['GW', 'coding'],
+  ['FA', 'done'], ['JM', 'coding'], ['EP', 'stuck'], ['UQ', 'coding'], ['CZ', 'coding'], ['LV', 'coding'],
+  ['BX', 'coding'], ['WS', 'coding'], ['QH', 'coding'], ['ZO', 'idle'], ['NE', 'done'], ['MU', 'coding'],
+].map(([initials, state]) => ({ initials, state: state as SeatState }));
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          el.classList.add('visible');
-          observer.unobserve(el);
-        }
-      },
-      { threshold: 0.15, rootMargin: '0px 0px -40px 0px' }
-    );
+const LEGEND: { state: SeatState; label: string }[] = [
+  { state: 'help', label: 'Asked for help' },
+  { state: 'stuck', label: 'Stuck' },
+  { state: 'coding', label: 'Coding' },
+  { state: 'done', label: 'Done' },
+];
 
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  return ref;
-}
-
-function RevealDiv({ children, className = '', style = {}, delay = 0 }: {
-  children: React.ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
-  delay?: number;
-}) {
-  const ref = useScrollReveal();
-  return (
-    <div
-      ref={ref}
-      className={`reveal ${className}`}
-      style={{ ...style, transitionDelay: `${delay}ms` }}
-    >
-      {children}
-    </div>
-  );
-}
-
-/* ─── High-performance RAF Counter (Isolated Leaf Component) ─── */
-function StatCounter({ target, suffix = '', label, active }: {
-  target: number;
-  suffix?: string;
-  label: string;
-  active: boolean;
-}) {
-  const [count, setCount] = useState(0);
-
-  useEffect(() => {
-    if (!active) return;
-    let startTimestamp: number | null = null;
-    const duration = 1600;
-    let animId: number;
-
-    const step = (timestamp: number) => {
-      if (!startTimestamp) startTimestamp = timestamp;
-      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-      const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
-      setCount(Math.floor(ease * target));
-
-      if (progress < 1) {
-        animId = requestAnimationFrame(step);
-      } else {
-        setCount(target);
-      }
-    };
-
-    animId = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(animId);
-  }, [active, target]);
-
-  return (
-    <div style={{ textAlign: 'center' }}>
-      <div className="stat-number">{count.toLocaleString()}{suffix}</div>
-      <div className="stat-label">{label}</div>
-    </div>
-  );
-}
+const DIAGNOSES = [
+  { tier: 'Syntax', error: "SyntaxError: expected ':'", reading: 'Missing colon after the if on line 4' },
+  { tier: 'Logic', error: 'IndexError: list index out of range', reading: 'The loop runs one step past the end of the list' },
+  { tier: 'Conceptual', error: 'TypeError: can only concatenate str (not "int") to str', reading: 'Joining text and a number without converting' },
+];
 
 function ThemeToggle() {
   const { theme, toggle } = useTheme();
   return (
-    <button
-      className="btn-icon"
-      onClick={toggle}
-      title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
-    >
+    <button className="btn-icon" onClick={toggle} aria-label={theme === 'dark' ? 'Use light theme' : 'Use dark theme'}>
       {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
     </button>
   );
 }
 
+function RoomIllustration() {
+  return (
+    <figure className="lp-room" aria-label="Illustration of the instructor's seat map">
+      <div className="lp-room-head">
+        <div>
+          <div className="lp-room-title">Data Structures lab</div>
+          <div className="lp-room-sub">Arrays and loops, 30 students</div>
+        </div>
+        <div className="lp-room-code" aria-label="Room code 482913">482 913</div>
+      </div>
+
+      <div className="lp-board">Front of the room</div>
+
+      <div className="lp-seats">
+        {SEATS.map((seat, i) => (
+          <div
+            key={i}
+            className={`lp-seat lp-seat-${seat.state}`}
+            style={{ animationDelay: `${120 + i * 28}ms` }}
+          >
+            {seat.initials}
+          </div>
+        ))}
+      </div>
+
+      <figcaption className="lp-callout">
+        <span className="lp-callout-dot" />
+        <div>
+          <div className="lp-callout-title">RI asked for help, line 7</div>
+          <div className="lp-callout-body">Logic error: index out of range. The loop runs to <code>len(marks)</code> instead of stopping one before it.</div>
+        </div>
+      </figcaption>
+
+      <ul className="lp-legend">
+        {LEGEND.map((l) => (
+          <li key={l.state}>
+            <span className={`lp-legend-swatch lp-seat-${l.state}`} />
+            {l.label}
+          </li>
+        ))}
+      </ul>
+    </figure>
+  );
+}
+
 export default function LandingPage() {
   const router = useRouter();
-  const statsRef = useRef<HTMLDivElement>(null);
-  const [statsVisible, setStatsVisible] = useState(false);
-  const [showJoinModal, setShowJoinModal] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showTeacherAuthModal, setShowTeacherAuthModal] = useState(false);
+  const [code, setCode] = useState('');
   const [teacher, setTeacher] = useState<TeacherUser | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    restoreTeacherSession()
-      .then((t) => {
-        if (!cancelled) setTeacher(t);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    // Read after mount so server and client markup match.
+    const id = requestAnimationFrame(() => setTeacher(getTeacherSession()));
+    return () => cancelAnimationFrame(id);
   }, []);
 
-  // Observe stats section
-  useEffect(() => {
-    const el = statsRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setStatsVisible(true);
-          observer.unobserve(el);
-        }
-      },
-      { threshold: 0.3 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  const features = [
-    { num: '01', title: 'Zero-Setup Cloud IDE', desc: 'Students open a link and start coding. No compilers, no config, no version hell.' },
-    { num: '02', title: 'Live Code Sync', desc: 'Follow Mode mirrors the professor\'s editor to every student in real-time.' },
-    { num: '03', title: 'AI Lab Assistant', desc: 'Asks "what happens when i reaches 5?" — never gives the answer outright.' },
-    { num: '04', title: 'Instructor Dashboard', desc: 'Real-time queue of stuck students with classified error diagnosis attached.' },
-    { num: '05', title: 'Error Classification', desc: 'Three-tier engine: Syntax → Logic → Conceptual. Every error diagnosed, not just displayed.' },
-    { num: '06', title: 'Academic Integrity', desc: 'AST-level similarity detection. AI-generated code flagging against student history.' },
-  ];
-
-  const benefits = {
-    students: [
-      { icon: Zap, text: 'Start coding in seconds — a link, a PIN and your PRN. Nothing to install.' },
-      { icon: Sparkles, text: 'Get hints that make you think, not answers that make you copy.' },
-      { icon: Clock, text: 'Less waiting for help — your error is already diagnosed when the professor arrives.' },
-    ],
-    faculty: [
-      { icon: Eye, text: 'See every student\'s progress and errors across the whole lab at once.' },
-      { icon: Users, text: 'Broadcast your code live with Follow Mode, then switch to independent practice.' },
-      { icon: ShieldCheck, text: 'Spot copied or AI-generated code with similarity detection.' },
-    ],
-  };
-
-  const steps = [
-    'Student opens the zero-setup cloud IDE — no local installation required.',
-    'Professor begins in Follow Mode; code mirrors into every student\'s reference pane.',
-    'Lab shifts to Practice Mode; students code independently.',
-    'When a student hits an error, the classification engine tags it — Syntax, Logic, or Conceptual.',
-    'The AI assistant offers a guided hint — prompting reasoning, not spoon-feeding.',
-    'If unresolved, the issue escalates to the professor\'s dashboard with the diagnosis attached.',
-  ];
+  const codeComplete = code.length === 6;
 
   return (
-    <div className="landing-page">
-      {/* ─── Navigation ─── */}
-      <nav className="landing-nav">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Image
-            src="/logo.png"
-            alt="LabSync"
-            width={32}
-            height={32}
-            style={{ borderRadius: 'var(--radius-sm)' }}
-          />
-          <span style={{
-            fontSize: 17,
-            fontWeight: 800,
-            letterSpacing: '-0.03em',
-            color: 'var(--text-primary)',
-          }}>
-            LabSync
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div className="lp">
+      <nav className="lp-nav">
+        <Link href="/" className="lp-brand">
+          <Image src="/logo.png" alt="" width={28} height={28} />
+          <span>LabSync</span>
+        </Link>
+        <div className="lp-nav-actions">
           <ThemeToggle />
-
-          <a
-            href="#contact"
-            className="btn btn-ghost"
-            style={{ height: 32, fontSize: 12, padding: '0 10px', borderRadius: 4, textDecoration: 'none' }}
-          >
-            Contact
-          </a>
-
-          {/* Student Join Button */}
-          <button
-            className="btn btn-secondary"
-            onClick={() => setShowJoinModal(true)}
-            style={{ height: 32, fontSize: 12, padding: '0 12px', gap: 6, borderRadius: 4 }}
-            title="Join Lab as Student with Room Code, Name, and PRN"
-          >
-            <Users size={13} />
-            Join Lab (Student)
-          </button>
-
-          {/* Teacher Navigation & Session */}
           {teacher ? (
-            <>
-              <button
-                className="btn btn-ghost"
-                onClick={() => setShowCreateModal(true)}
-                style={{ height: 32, fontSize: 12, padding: '0 12px', gap: 6, borderRadius: 4 }}
-              >
-                <Sparkles size={13} style={{ color: 'var(--brand-light)' }} />
-                Create Lobby
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => router.push('/dashboard')}
-                style={{ height: 32, fontSize: 12, padding: '0 14px', gap: 6, borderRadius: 4 }}
-              >
-                <GraduationCap size={13} />
-                Dashboard
-                <ArrowRight size={13} />
-              </button>
-              <button
-                className="btn btn-ghost"
-                onClick={() => {
-                  logoutTeacher();
-                  setTeacher(null);
-                }}
-                style={{ height: 32, fontSize: 11, padding: '0 8px', borderRadius: 4 }}
-                title={`Signed in as ${teacher.name} (${teacher.email})`}
-              >
-                <LogOut size={12} />
-              </button>
-            </>
+            <Link href="/dashboard" className="btn btn-ghost lp-nav-btn">Your labs</Link>
           ) : (
-            <>
-              <button
-                className="btn btn-ghost"
-                onClick={() => setShowTeacherAuthModal(true)}
-                style={{ height: 32, fontSize: 12, padding: '0 12px', gap: 6, borderRadius: 4 }}
-              >
-                <ShieldCheck size={13} style={{ color: 'var(--brand-light)' }} />
-                Teacher Login
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => router.push('/dashboard')}
-                style={{ height: 32, fontSize: 12, padding: '0 14px', gap: 6, borderRadius: 4 }}
-              >
-                Instructor Portal
-                <ArrowRight size={13} />
-              </button>
-            </>
+            <Link href="/login" className="btn btn-ghost lp-nav-btn">Teacher sign in</Link>
           )}
-
-          <button
-            className="btn btn-ghost"
-            onClick={() => router.push('/ide')}
-            style={{ height: 32, fontSize: 12, padding: '0 10px', borderRadius: 4 }}
-            title="Open Sandbox Code Editor"
-          >
-            IDE
-          </button>
+          <Link href="/join" className="btn btn-primary lp-nav-btn">Join a lab</Link>
         </div>
       </nav>
 
-      {/* ─── Hero ─── */}
-      <section className="hero-section">
-        {/* Animated ambient glow orbs */}
-        <div className="hero-glow-wrapper" aria-hidden="true">
-          <div className="hero-glow-orb hero-glow-orb-amber" />
-          <div className="hero-glow-orb hero-glow-orb-cyan" />
-          <div className="hero-glow-orb hero-glow-orb-emerald" />
-          <div className="hero-glow-orb hero-glow-orb-spotlight" />
-        </div>
+      <main>
+        <section className="lp-hero">
+          <div className="lp-hero-copy">
+            <h1 className="lp-title">See every student in the lab while they code.</h1>
+            <p className="lp-lede">
+              LabSync is a browser IDE for college programming labs. Students join with a six-digit code.
+              You get a live map of the room: who is coding, who is stuck, and exactly why.
+            </p>
 
-        <div className="hero-content">
-          <div className="hero-tag hero-animate-0">
-            <span style={{
-              width: 5, height: 5, borderRadius: '50%',
-              background: 'var(--accent-success-light)',
-              animation: 'pulse-dot 2s ease-in-out infinite',
-            }} />
-            Zero-Setup Cloud IDE & Live Diagnostics
+            <form
+              className="lp-join"
+              onSubmit={(e) => {
+                e.preventDefault();
+                router.push(codeComplete ? `/join?code=${code}` : '/join');
+              }}
+            >
+              <label htmlFor="lp-code" className="lp-join-label">Have a lab code?</label>
+              <div className="lp-join-row">
+                <input
+                  id="lp-code"
+                  className="lp-join-input"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="000000"
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                />
+                <button type="submit" className="btn btn-primary lp-join-btn">Join lab</button>
+              </div>
+            </form>
+
+            <p className="lp-hero-alt">
+              Teaching? <Link href={teacher ? '/dashboard' : '/login?mode=signup'}>Create a lab</Link>
+              {' '}or <Link href="/ide">try the editor on its own</Link>.
+            </p>
           </div>
 
-          <h1 className="hero-title hero-animate-1">
-            Diagnose every student’s code.<br />
-            <span className="hero-accent">Before they even raise a hand.</span>
-          </h1>
+          <RoomIllustration />
+        </section>
 
-          <p className="hero-subtitle hero-animate-2">
-            A zero-setup cloud IDE paired with real-time diagnostic intelligence.
-            LabSync automatically classifies student errors — Syntax, Logic, or Conceptual —
-            and alerts instructors with instant diagnoses across the entire lab room.
+        <section className="lp-section">
+          <h2 className="lp-h2">How a lab runs</h2>
+          <ol className="lp-steps">
+            <li>
+              <h3>Show the code</h3>
+              <p>Students enter the room code. Turn on sharing and your editor appears read-only beside theirs while you explain.</p>
+            </li>
+            <li>
+              <h3>Let them practise</h3>
+              <p>Everyone codes in their own editor, with Python, C, C++, Java, JavaScript or HTML. Nothing to install.</p>
+            </li>
+            <li>
+              <h3>Help whoever is stuck</h3>
+              <p>A raised hand, or three failed runs in a row, moves a student to the top of your seat map with their code and diagnosis attached.</p>
+            </li>
+          </ol>
+        </section>
+
+        <section className="lp-section">
+          <h2 className="lp-h2">Every error arrives already read</h2>
+          <p className="lp-section-lede">
+            Each failed run is sorted into one of three kinds, so you know what sort of help to give before you walk over.
           </p>
-
-          <div className="hero-animate-3" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-              <button
-                className="btn btn-primary"
-                onClick={() => setShowJoinModal(true)}
-                style={{ padding: '11px 22px', fontSize: 13, fontWeight: 700, borderRadius: 4, display: 'flex', alignItems: 'center', gap: 7 }}
-              >
-                <Users size={15} />
-                Student Join Lab (PIN + PRN)
-                <ArrowRight size={14} />
-              </button>
-              <button
-                className="btn btn-secondary"
-                onClick={() => {
-                  if (teacher) {
-                    setShowCreateModal(true);
-                  } else {
-                    setShowTeacherAuthModal(true);
-                  }
-                }}
-                style={{ padding: '11px 20px', fontSize: 13, fontWeight: 600, borderRadius: 4, display: 'flex', alignItems: 'center', gap: 7 }}
-              >
-                <Sparkles size={15} style={{ color: 'var(--brand-light)' }} />
-                Create Lab Lobby (Faculty)
-              </button>
-              <button
-                className="btn btn-ghost"
-                onClick={() => router.push('/ide')}
-                style={{ padding: '11px 18px', fontSize: 13, borderRadius: 4, display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <Code2 size={15} />
-                Open Sandbox IDE
-              </button>
-            </div>
-
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-              <span>🎓 <strong>Students:</strong> Instant entry with 6-digit PIN, Name, and PRN.</span>
-              <span>🔒 <strong>Faculty:</strong> Institutional login (@mitaoe.ac.in).</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ─── Value Proposition ─── */}
-      <section style={{ padding: '40px 48px 8px', textAlign: 'center' }}>
-        <RevealDiv>
-          <p style={{
-            fontSize: 20,
-            fontWeight: 700,
-            letterSpacing: '-0.02em',
-            maxWidth: 760,
-            margin: '0 auto',
-            color: 'var(--text-primary)',
-            lineHeight: 1.4,
-          }}>
-            LabSync turns a 60-student lab into one you can actually see:
-            <span className="hero-accent"> zero setup for students, instant diagnosis for professors.</span>
-          </p>
-        </RevealDiv>
-      </section>
-
-      {/* ─── IDE Preview ─── */}
-      <section className="preview-section">
-        <RevealDiv>
-          <div style={{ marginBottom: 16 }}>
-            <span style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: 'var(--brand-muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.12em',
-            }}>
-              Student Experience
-            </span>
-          </div>
-          <div className="preview-card">
-            <Image
-              src="/images/ide-preview.jpg"
-              alt="LabSync IDE — zero-setup cloud code editor"
-              width={1200}
-              height={675}
-              style={{ width: '100%', height: 'auto' }}
-              priority
-            />
-          </div>
-        </RevealDiv>
-      </section>
-
-      {/* ─── Stats ─── */}
-      <section className="stats-bar" ref={statsRef}>
-        <StatCounter target={1457} suffix="+" label="Institutions Ready" active={statsVisible} />
-        <StatCounter target={60} suffix="+" label="Students Per Lab" active={statsVisible} />
-        <StatCounter target={5} label="Languages" active={statsVisible} />
-        <StatCounter target={90} suffix="+" label="Error Patterns" active={statsVisible} />
-      </section>
-
-      {/* ─── Features Grid ─── */}
-      <section style={{ padding: '80px 48px' }}>
-        <RevealDiv style={{ textAlign: 'center', marginBottom: 48 }}>
-          <h2 style={{
-            fontSize: 32,
-            fontWeight: 800,
-            letterSpacing: '-0.03em',
-            marginBottom: 12,
-          }}>
-            Six core components,{' '}
-            <span className="hero-accent">one platform.</span>
-          </h2>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', maxWidth: 460, margin: '0 auto' }}>
-            Each built with diagnostic intelligence at its core — not just visibility.
-          </p>
-        </RevealDiv>
-
-        <RevealDiv delay={100}>
-          <div className="feature-grid">
-            {features.map((f, i) => (
-              <div key={i} className="feature-cell">
-                <div className="feature-number">{f.num}</div>
-                <div className="feature-title">{f.title}</div>
-                <p className="feature-desc">{f.desc}</p>
+          <div className="lp-diagnoses">
+            {DIAGNOSES.map((d) => (
+              <div key={d.tier} className="lp-diagnosis">
+                <div className={`lp-tier lp-tier-${d.tier.toLowerCase()}`}>{d.tier}</div>
+                <code className="lp-diagnosis-error">{d.error}</code>
+                <div className="lp-diagnosis-reading">{d.reading}</div>
               </div>
             ))}
-          </div>
-        </RevealDiv>
-      </section>
-
-      {/* ─── Dashboard Preview ─── */}
-      <section className="preview-section">
-        <RevealDiv>
-          <div style={{ marginBottom: 16 }}>
-            <span style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: 'var(--brand-muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.12em',
-            }}>
-              Instructor Experience
-            </span>
-          </div>
-          <div className="preview-card">
-            <Image
-              src="/images/dashboard-preview.jpg"
-              alt="LabSync Dashboard — real-time student monitoring"
-              width={1200}
-              height={675}
-              style={{ width: '100%', height: 'auto' }}
-            />
-          </div>
-        </RevealDiv>
-      </section>
-
-      {/* ─── Benefits ─── */}
-      <section style={{ padding: '60px 48px' }}>
-        <RevealDiv style={{ textAlign: 'center', marginBottom: 40 }}>
-          <h2 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.03em' }}>
-            Built for both sides of the lab.
-          </h2>
-        </RevealDiv>
-        <RevealDiv delay={100}>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-            gap: 20,
-            maxWidth: 960,
-            margin: '0 auto',
-          }}>
-            {([['For students', benefits.students], ['For faculty', benefits.faculty]] as const).map(([title, items]) => (
-              <div key={title} className="feature-cell" style={{ border: '1px solid var(--border)', borderRadius: 6 }}>
-                <div className="feature-title" style={{ marginBottom: 16 }}>{title}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {items.map(({ icon: Icon, text }, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                      <Icon size={16} style={{ color: 'var(--brand-light)', flexShrink: 0, marginTop: 2 }} />
-                      <p className="feature-desc" style={{ margin: 0 }}>{text}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </RevealDiv>
-      </section>
-
-      {/* ─── How it Works ─── */}
-      <section className="steps-section">
-        <RevealDiv>
-          <h2 style={{
-            fontSize: 28,
-            fontWeight: 800,
-            letterSpacing: '-0.03em',
-            marginBottom: 40,
-          }}>
-            How a lab session works.
-          </h2>
-        </RevealDiv>
-
-        {steps.map((text, i) => (
-          <RevealDiv key={i} delay={i * 60}>
-            <div className="step-row">
-              <div className="step-num">{i + 1}</div>
-              <p className="step-text">{text}</p>
-            </div>
-          </RevealDiv>
-        ))}
-      </section>
-
-      {/* ─── CTA ─── */}
-      <RevealDiv>
-        <section style={{
-          padding: '60px 48px',
-          textAlign: 'center',
-          borderTop: '1px solid var(--border)',
-        }}>
-          <h2 style={{
-            fontSize: 28,
-            fontWeight: 800,
-            letterSpacing: '-0.03em',
-            marginBottom: 16,
-          }}>
-            Ready to try it?
-          </h2>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 28, maxWidth: 400, margin: '0 auto 28px' }}>
-            Open the prototype — no signup, no setup. Just code.
-          </p>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-            <button
-              className="btn btn-primary"
-              onClick={() => router.push('/ide')}
-              style={{ padding: '11px 28px', fontSize: 14 }}
-            >
-              <Code2 size={16} />
-              Launch IDE
-              <ExternalLink size={12} style={{ opacity: 0.5 }} />
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => router.push('/dashboard')}
-              style={{ padding: '11px 28px', fontSize: 14 }}
-            >
-              View Dashboard
-              <ChevronRight size={14} />
-            </button>
           </div>
         </section>
-      </RevealDiv>
 
-      {/* ─── Contact ─── */}
-      <section id="contact" style={{
-        padding: '60px 48px',
-        textAlign: 'center',
-        borderTop: '1px solid var(--border)',
-      }}>
-        <RevealDiv>
-          <h2 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 12 }}>
-            Want LabSync in your lab?
-          </h2>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', maxWidth: 440, margin: '0 auto 24px' }}>
-            Book a quick demo or get in touch — we&apos;ll help you run your first session.
-          </p>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <a
-              className="btn btn-primary"
-              href={`mailto:${CONTACT.email}?subject=${encodeURIComponent(CONTACT.demoSubject)}`}
-              style={{ padding: '11px 24px', fontSize: 14, textDecoration: 'none' }}
-            >
-              <CalendarCheck size={16} />
-              Request a Demo
-            </a>
-            <a
-              className="btn btn-secondary"
-              href={`mailto:${CONTACT.email}`}
-              style={{ padding: '11px 24px', fontSize: 14, textDecoration: 'none' }}
-            >
-              <Mail size={16} />
-              {CONTACT.email}
-            </a>
-          </div>
-        </RevealDiv>
-      </section>
+        <section className="lp-section lp-contact">
+          <h2 className="lp-h2">Run your next lab on LabSync</h2>
+          <p className="lp-section-lede">We will help you set up your first session.</p>
+          <a className="btn btn-primary lp-contact-btn" href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('LabSync demo request')}`}>
+            Email {CONTACT_EMAIL}
+          </a>
+        </section>
+      </main>
 
-      {/* ─── Footer ─── */}
-      <footer className="landing-footer">
-        <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>LabSync</span>
-        {' · '}
-        Diagnostic intelligence for college programming labs
-        {' · '}
-        <a href={`mailto:${CONTACT.email}`} style={{ color: 'inherit' }}>{CONTACT.email}</a>
-      </footer>
-
-      {/* ─── Modals ─── */}
-      <JoinLabModal isOpen={showJoinModal} onClose={() => setShowJoinModal(false)} />
-      <CreateLobbyModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} />
-      <TeacherAuthModal
-        isOpen={showTeacherAuthModal}
-        onClose={() => setShowTeacherAuthModal(false)}
-        onSuccess={(t) => {
-          setTeacher(t);
-          setShowTeacherAuthModal(false);
-        }}
-      />
+      <footer className="lp-footer">LabSync, for college programming labs.</footer>
     </div>
   );
 }

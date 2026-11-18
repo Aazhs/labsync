@@ -14,7 +14,7 @@ export const LANGUAGES: Language[] = [
     id: 71,
     name: 'python',
     label: 'Python 3',
-    defaultCode: '# Welcome to LabSync IDE\n# Write your Python code here\n\ndef main():\n    print("Hello, LabSync!")\n',
+    defaultCode: '# Write your Python code here\n\ndef main():\n    print("Hello, LabSync!")\n\n\nmain()\n',
   },
   {
     id: 100,
@@ -213,7 +213,7 @@ export type ExecutionResult = {
   classification?: {
     tier: 'syntax' | 'logic' | 'conceptual' | 'none';
     category: string;
-    confidence: number;
+    confidence?: number;
     message: string;
     suggestion: string;
     line?: number;
@@ -336,11 +336,23 @@ interface IDEStore {
 
 const initialFiles = getDefaultFiles(LANGUAGES[0]);
 
+/**
+ * Each lab (and each role in it) gets its own saved workspace. In demo mode the teacher and
+ * students share one browser, so a single key would let one tab load the other's code.
+ */
+export function workspaceStorageKey(base: string): string {
+  if (typeof window === 'undefined') return base;
+  const params = new URLSearchParams(window.location.search);
+  const room = window.location.pathname.startsWith('/ide') ? params.get('room') : null;
+  if (!room) return base;
+  return `${base}:${room}:${params.get('role') === 'teacher' ? 'teacher' : 'student'}`;
+}
+
 const safeLocalStorage = {
   getItem: (name: string): string | null => {
     if (typeof window === 'undefined') return null;
     try {
-      return window.localStorage.getItem(name);
+      return window.localStorage.getItem(workspaceStorageKey(name));
     } catch {
       return null;
     }
@@ -348,13 +360,13 @@ const safeLocalStorage = {
   setItem: (name: string, value: string): void => {
     if (typeof window === 'undefined') return;
     try {
-      window.localStorage.setItem(name, value);
+      window.localStorage.setItem(workspaceStorageKey(name), value);
     } catch {}
   },
   removeItem: (name: string): void => {
     if (typeof window === 'undefined') return;
     try {
-      window.localStorage.removeItem(name);
+      window.localStorage.removeItem(workspaceStorageKey(name));
     } catch {}
   },
 };

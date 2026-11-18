@@ -14,11 +14,13 @@
 - [ ] [P1] [Infra] **Shared rate limiting:** `/api/execute` and `/api/hint` limits are in-memory per server instance; move to a shared store (e.g. Upstash/Redis) for multi-instance deployments
 - [ ] [P2] [Feature] **Lab history:** Let teachers browse ended labs and export attendance/PRN lists (ended labs are currently hidden from the dashboard)
 - [ ] [P2] [Quality] **Automated tests:** Add an E2E suite (teacher signup → create lab → student join → run → dashboard) and SQL policy tests for `supabase/schema.sql`
-- [ ] [P3] [Cleanup] **Deduplicate UIs:** `/login` vs `TeacherAuthModal` and `/join` vs `JoinLabModal` are near-identical copies
 
 ---
 
 ## ✅ Completed
+- [x] [P1] [Design] **Simpler UI:** whiteboard theme (projector-friendly) with chalkboard dark mode, seat-map dashboard, one-field join, demo teacher account, full-screen room code; removed duplicate `TeacherAuthModal` / `JoinLabModal`
+- [x] [P1] [Bug] **Teacher and student tabs shared one saved workspace** in the same browser; workspaces are now kept per lab and role
+- [x] [P1] [Bug] **Error classifier labelled every error "syntax"**; runtime crashes are now logic, type/None misuse is conceptual
 - [x] [P0] [Security] **Remove server-side code execution:** Student code no longer runs on the host (`new Function`/`eval` fallbacks removed, local compilers opt-in via `LABSYNC_LOCAL_EXEC` in development only); input validation, size limits, timeouts and rate limiting on `/api/execute`
 - [x] [P0] [Security] **Real teacher authentication:** Supabase Auth email/password (previously any password was accepted); `?role=teacher` no longer grants control — only the lab's creator can manage it
 - [x] [P0] [Security] **Locked-down database:** RLS restricts lab changes to their owner and student rosters (names, PRNs, code) to the owning teacher; students write only through token-checked `join_lab` / `update_student_state` functions

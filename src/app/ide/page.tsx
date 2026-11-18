@@ -8,7 +8,6 @@ import { useIDEStore, LANGUAGES } from '@/lib/store';
 import {
   getLobbyByCode,
   getStudentSession,
-  isDemoMode,
   isLobbyOwner,
   LabLobby,
   LobbyStatus,
@@ -133,11 +132,23 @@ function IDEPageContent() {
     [teacher, wantsTeacher]
   );
 
+  // The saved workspace is keyed by room and role; reload it for this URL (matters after
+  // client-side navigation, when the store was first created on another page).
+  useEffect(() => {
+    if (roomCode) return;
+    useIDEStore.persist.rehydrate();
+  }, [roomCode]);
+
   useEffect(() => {
     if (!roomCode) return;
     let cancelled = false;
+    let hydrated = false;
     const load = async () => {
       try {
+        if (!hydrated) {
+          await useIDEStore.persist.rehydrate();
+          hydrated = true;
+        }
         const next = await getLobbyByCode(roomCode);
         if (cancelled) return;
         if (next) applyLobby(next);
@@ -666,35 +677,34 @@ function IDEPageContent() {
 
   const studentControls =
     roomCode && !isTeacher && studentSession && lobbyStatus !== 'completed' ? (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 8 }}>
+      <>
         {studentSync.syncError && (
-          <span title={studentSync.syncError} style={{ display: 'flex', color: 'var(--accent-warning)' }}>
+          <span title={studentSync.syncError} className="ih-offline">
             <CloudOff size={14} />
+            Offline
           </span>
         )}
         <button
           type="button"
-          className={`btn ${studentSync.handRaised ? 'btn-danger' : 'btn-secondary'}`}
+          className={`btn btn-secondary ih-btn ih-hand${studentSync.handRaised ? ' is-on' : ''}`}
           onClick={studentSync.toggleHandRaised}
-          title={studentSync.handRaised ? 'Lower your hand' : 'Ask your instructor for help'}
           aria-pressed={studentSync.handRaised}
-          style={{ height: 28, fontSize: 11, padding: '0 10px', gap: 5, borderRadius: 4 }}
+          title={studentSync.handRaised ? 'Lower your hand' : 'Let your instructor know you need help'}
         >
-          <Hand size={12} />
-          {studentSync.handRaised ? 'Help requested' : 'Raise hand'}
+          <Hand size={14} />
+          {studentSync.handRaised ? 'Help requested' : 'Ask for help'}
         </button>
         <button
           type="button"
-          className={`btn ${studentSync.done ? 'btn-success' : 'btn-ghost'}`}
+          className={`btn btn-secondary ih-btn ih-done${studentSync.done ? ' is-on' : ''}`}
           onClick={studentSync.toggleDone}
-          title={studentSync.done ? 'Mark as still working' : 'Tell your instructor you have finished'}
           aria-pressed={studentSync.done}
-          style={{ height: 28, fontSize: 11, padding: '0 10px', gap: 5, borderRadius: 4 }}
+          title={studentSync.done ? 'Mark as still working' : 'Tell your instructor you have finished'}
         >
-          <CheckCircle2 size={12} />
-          {studentSync.done ? 'Done' : 'Mark done'}
+          <CheckCircle2 size={14} />
+          {studentSync.done ? 'Done' : 'I’m done'}
         </button>
-      </div>
+      </>
     ) : null;
 
   return (
@@ -704,6 +714,7 @@ function IDEPageContent() {
         onRun={() => runCode()}
         onStop={stopCode}
         roomCode={roomCode}
+        labTitle={lobby?.title}
         studentName={isTeacher ? null : studentSession?.name}
         prn={isTeacher ? null : studentSession?.prn}
         role={isTeacher ? 'teacher' : 'student'}
@@ -716,60 +727,18 @@ function IDEPageContent() {
       />
 
       <div className="ide-notices">
-      {roomCode && isDemoMode && (
-        <div style={{
-          background: 'rgba(91, 141, 184, 0.12)',
-          borderBottom: '1px solid rgba(91, 141, 184, 0.3)',
-          color: 'var(--accent-info)',
-          padding: '4px 16px',
-          fontSize: 11,
-          textAlign: 'center',
-        }}>
-          Demo mode — lab data is stored in this browser only. Configure Supabase to run labs across devices.
-        </div>
-      )}
-
-      {/* Lab Paused / Concluded Notice Banners */}
-      {roomCode && lobbyStatus === 'paused' && (
-        <div style={{
-          background: 'rgba(217, 119, 6, 0.16)',
-          borderBottom: '1px solid rgba(217, 119, 6, 0.35)',
-          color: 'var(--accent-warning)',
-          padding: '6px 16px',
-          fontSize: 12,
-          fontWeight: 700,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-          zIndex: 10,
-        }}>
-          <span>⏸️ Lab Session Paused</span>
-          <span style={{ fontWeight: 400, opacity: 0.85 }}>
-            {isTeacher ? '— Students cannot run code until you resume the lab' : '— Code execution is locked while the instructor presents'}
-          </span>
-        </div>
-      )}
-      {roomCode && lobbyStatus === 'completed' && (
-        <div style={{
-          background: 'rgba(113, 113, 122, 0.16)',
-          borderBottom: '1px solid rgba(113, 113, 122, 0.35)',
-          color: 'var(--text-secondary)',
-          padding: '6px 16px',
-          fontSize: 12,
-          fontWeight: 700,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-          zIndex: 10,
-        }}>
-          <span>⏹️ Lab Session Concluded</span>
-          <span style={{ fontWeight: 400, opacity: 0.85 }}>
-            {isTeacher ? '— Students can no longer join or report progress' : '— Your code stays in this browser, but your instructor no longer receives updates'}
-          </span>
-        </div>
-      )}
+        {roomCode && lobbyStatus === 'paused' && (
+          <div className="ide-notice ide-notice-paused">
+            <strong>Lab paused.</strong>
+            {isTeacher ? ' Students cannot run code until you resume.' : ' Your instructor is explaining something. You can keep editing; running is off for now.'}
+          </div>
+        )}
+        {roomCode && lobbyStatus === 'completed' && (
+          <div className="ide-notice">
+            <strong>This lab has ended.</strong>
+            {isTeacher ? ' Students can no longer join or send updates.' : ' Your code stays in this browser, but your instructor no longer receives updates.'}
+          </div>
+        )}
       </div>
 
       {/* Activity Sidebar */}
@@ -831,59 +800,21 @@ function IDEPageContent() {
             height: '100%',
           }}
         >
-          {/* Follow Mode / Reference Mode Bar */}
-          {sessionMode === 'follow' ? (
-            <div className="mode-banner mode-follow">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div className="mode-badge-follow">
-                  <span className="live-dot-amber" />
-                  <span>FOLLOW MODE</span>
-                </div>
-                <span className="mode-desc">
-                  Watching instructor&apos;s live demonstration code in split view
-                </span>
-              </div>
+          {(sessionMode === 'follow' || showReferencePane) && !isTeacher && (
+            <div className={`ide-share-bar${sessionMode === 'follow' ? ' is-live' : ''}`}>
+              <span className="ide-share-dot" />
+              <span className="ide-share-text">
+                {sessionMode === 'follow' ? 'Your instructor is sharing their code' : 'Your instructor has stopped sharing'}
+              </span>
               <button
                 type="button"
+                className="btn btn-ghost ih-btn"
                 onClick={() => setShowReferencePane(!showReferencePane)}
-                className={`mode-toggle-btn ${showReferencePane ? 'btn-ghost' : 'btn-accent'}`}
-                title={showReferencePane ? 'Minimize split view' : 'Open professor demonstration code in split view'}
               >
-                {showReferencePane ? (
-                  <>
-                    <EyeOff size={11} />
-                    <span>Hide Split View</span>
-                  </>
-                ) : (
-                  <>
-                    <Eye size={11} />
-                    <span>Show Split View</span>
-                  </>
-                )}
+                {showReferencePane ? <EyeOff size={13} /> : <Eye size={13} />}
+                {showReferencePane ? 'Hide' : 'Show'}
               </button>
             </div>
-          ) : (
-            showReferencePane && (
-              <div className="mode-banner mode-practice">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div className="mode-badge-practice">
-                    <span>✏️ PRACTICE</span>
-                  </div>
-                  <span className="mode-desc">
-                    Viewing instructor reference material in split view
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowReferencePane(false)}
-                  className="mode-toggle-btn btn-ghost"
-                  title="Close reference split pane"
-                >
-                  <EyeOff size={11} />
-                  <span>Close Split</span>
-                </button>
-              </div>
-            )
           )}
 
           {/* Editor Area (Top) */}
@@ -899,37 +830,16 @@ function IDEPageContent() {
             {showReferencePane && (
               <>
                 <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)' }}>
-                  <div className="panel-header" style={{ height: 36, minHeight: 36, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                      <Radio size={13} style={{ color: 'var(--brand-light)' }} />
-                      <span style={{ fontWeight: 700, fontSize: 12 }}>Professor&apos;s Code (Read-Only)</span>
-                      {broadcastEnabled && (
-                        <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(61, 140, 111, 0.2)', color: 'var(--accent-success-light)' }}>
-                          LIVE SYNC
-                        </span>
-                      )}
-                    </div>
+                  <div className="panel-header ide-ref-head">
+                    <span className="ide-ref-title">
+                      <Radio size={13} />
+                      Instructor’s code
+                    </span>
                     {broadcastEnabled && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 700,
-                            padding: '2px 8px',
-                            borderRadius: 4,
-                            background: 'rgba(239, 68, 68, 0.12)',
-                            color: 'var(--accent-danger)',
-                            border: '1px solid rgba(239, 68, 68, 0.25)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                          }}
-                          title="Professor code is view-only. Copying is restricted to encourage hands-on learning."
-                        >
-                          <Lock size={10} />
-                          View Only • Copy Disabled
-                        </span>
-                      </div>
+                      <span className="ide-ref-lock" title="Type it yourself: copying is turned off so you practise.">
+                        <Lock size={11} />
+                        Read-only
+                      </span>
                     )}
                   </div>
 
@@ -938,41 +848,12 @@ function IDEPageContent() {
                       <CodeEditor
                         readOnly={true}
                         disableCopy={true}
-                        value={referenceCode || '// Waiting for professor to broadcast code...'}
+                        value={referenceCode || '// Your instructor’s code will appear here when they start sharing.'}
                       />
                     ) : (
-                      <div style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        height: '100%',
-                        padding: 24,
-                        textAlign: 'center',
-                        gap: 12,
-                        background: 'var(--bg-secondary)',
-                      }}>
-                        <div style={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 8,
-                          background: 'rgba(224, 74, 59, 0.12)',
-                          border: '1px solid rgba(224, 74, 59, 0.3)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: 'var(--accent-danger)',
-                        }}>
-                          <EyeOff size={22} />
-                        </div>
-                        <div>
-                          <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', marginBottom: 4 }}>
-                            Professor Code Viewing Disabled
-                          </div>
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 280, lineHeight: 1.5 }}>
-                            Your instructor has temporarily hidden the broadcast code for this exercise. Complete the lab independently!
-                          </div>
-                        </div>
+                      <div className="ide-ref-empty">
+                        <EyeOff size={20} />
+                        <p>Your instructor is not sharing their code right now.</p>
                       </div>
                     )}
                   </div>

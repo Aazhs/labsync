@@ -86,9 +86,9 @@ export default function StatusBar() {
           onClick={toggleVimMode}
           className="status-item"
           style={{
-            background: vimModeEnabled ? 'rgba(212, 148, 58, 0.15)' : 'transparent',
+            background: vimModeEnabled ? 'color-mix(in srgb, var(--brand) 15%, transparent)' : 'transparent',
             color: vimModeEnabled ? 'var(--accent)' : 'inherit',
-            border: vimModeEnabled ? '1px solid rgba(212, 148, 58, 0.4)' : '1px solid transparent',
+            border: vimModeEnabled ? '1px solid color-mix(in srgb, var(--brand) 40%, transparent)' : '1px solid transparent',
             borderRadius: 3,
             padding: '1px 6px',
             cursor: 'pointer',

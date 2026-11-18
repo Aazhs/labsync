@@ -393,11 +393,32 @@ export type LobbyChange =
   /** Something changed but the details are unknown (demo mode); refetch. */
   | { table: 'unknown' };
 
+/** How often to re-check the room when push updates may be missing (blocked websocket, paused tab). */
+const POLL_FAST_MS = 2000;
+const POLL_SLOW_MS = 8000;
+
 /**
- * Subscribe to changes in one room. In Supabase mode the callback receives the changed
- * row so callers can merge it instead of refetching everything.
+ * Subscribe to changes in one room. Changes are pushed when possible (Supabase Realtime, or
+ * BroadcastChannel and storage events between tabs in demo mode). A light poll, plus a re-check
+ * whenever the tab becomes visible again, catches anything a push missed, so a screen never
+ * stays stale until the user refreshes.
  */
 export function subscribeToLobbyUpdates(roomCode: string, onChange: (change: LobbyChange) => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+
+  // Coalesce bursts of "something changed" into one refetch.
+  let pending: ReturnType<typeof setTimeout> | null = null;
+  const refetch = () => {
+    if (pending) return;
+    pending = setTimeout(() => {
+      pending = null;
+      onChange({ table: 'unknown' });
+    }, 60);
+  };
+
+  const cleanups: (() => void)[] = [];
+  let pushHealthy = false;
+
   const supabase = getSupabase();
   if (supabase) {
     const channel = supabase
@@ -408,8 +429,8 @@ export function subscribeToLobbyUpdates(roomCode: string, onChange: (change: Lob
         (payload) => {
           const deleted = payload.eventType === 'DELETE';
           const row = (deleted ? payload.old : payload.new) as LabStudent;
-          if (row?.id) onChange({ table: 'lab_students', student: row, deleted });
-          else onChange({ table: 'unknown' });
+          if (row?.id && row.room_code) onChange({ table: 'lab_students', student: row, deleted });
+          else refetch();
         }
       )
       .on(
@@ -418,19 +439,53 @@ export function subscribeToLobbyUpdates(roomCode: string, onChange: (change: Lob
         (payload) => {
           const row = payload.new as LabLobby;
           if (row?.id) onChange({ table: 'lab_lobbies', lobby: row });
-          else onChange({ table: 'unknown' });
+          else refetch();
         }
       )
-      .subscribe();
-    return () => {
+      .subscribe((status) => {
+        const wasHealthy = pushHealthy;
+        pushHealthy = status === 'SUBSCRIBED';
+        // Catch up on anything that changed while the connection was down.
+        if (pushHealthy && !wasHealthy) refetch();
+      });
+    cleanups.push(() => {
       supabase.removeChannel(channel);
+    });
+  } else {
+    // Demo mode polls fast: it only reads this browser's storage, which is free.
+    const channel = getDemoChannel();
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'CHANGED' && event.data.roomCode === roomCode) refetch();
     };
+    // Fires in every other tab of this browser when lab data changes; works even where
+    // BroadcastChannel messages are dropped.
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === DEMO_LOBBIES_KEY || event.key === DEMO_STUDENTS_KEY) refetch();
+    };
+    channel?.addEventListener('message', onMessage);
+    window.addEventListener('storage', onStorage);
+    cleanups.push(() => {
+      channel?.removeEventListener('message', onMessage);
+      window.removeEventListener('storage', onStorage);
+    });
   }
 
-  const channel = getDemoChannel();
-  const listener = (event: MessageEvent) => {
-    if (event.data?.type === 'CHANGED' && event.data.roomCode === roomCode) onChange({ table: 'unknown' });
+  // Safety net: poll while visible, fast when push isn't connected.
+  let timer: ReturnType<typeof setTimeout>;
+  const tick = () => {
+    if (document.visibilityState === 'visible') refetch();
+    timer = setTimeout(tick, pushHealthy ? POLL_SLOW_MS : POLL_FAST_MS);
   };
-  channel?.addEventListener('message', listener);
-  return () => channel?.removeEventListener('message', listener);
+  timer = setTimeout(tick, POLL_FAST_MS);
+  const onVisible = () => document.visibilityState === 'visible' && refetch();
+  document.addEventListener('visibilitychange', onVisible);
+  window.addEventListener('focus', onVisible);
+  cleanups.push(() => {
+    clearTimeout(timer);
+    if (pending) clearTimeout(pending);
+    document.removeEventListener('visibilitychange', onVisible);
+    window.removeEventListener('focus', onVisible);
+  });
+
+  return () => cleanups.forEach((fn) => fn());
 }

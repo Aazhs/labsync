@@ -178,6 +178,30 @@ export default function OutputPanel({ onRun }: OutputPanelProps) {
 
   const isTerminalActive = activeOutputTab === 'terminal' || activeOutputTab === 'output';
 
+  const classification = lastResult?.classification;
+  const diagnosis =
+    classification && classification.tier !== 'none' ? (
+      <div className={`diagnosis diagnosis-${classification.tier}`}>
+        <div className="diagnosis-head">
+          <span className="diagnosis-tier">
+            {classification.tier === 'syntax' ? 'Syntax error' : classification.tier === 'logic' ? 'Logic error' : 'Conceptual error'}
+          </span>
+          <span className="diagnosis-category">{classification.category}</span>
+          {classification.line && (
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => setTargetPosition({ line: classification.line! })}
+            >
+              Go to line {classification.line}
+            </button>
+          )}
+        </div>
+        <code className="diagnosis-message">{classification.message}</code>
+        <p className="diagnosis-hint">{classification.suggestion}</p>
+      </div>
+    ) : null;
+
   return (
     <div className="panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header Tab Bar */}
@@ -318,6 +342,7 @@ export default function OutputPanel({ onRun }: OutputPanelProps) {
         ) : (
           /* Problems Tab */
           <div style={{ padding: '8px 16px', overflowY: 'auto', height: '100%' }}>
+            {diagnosis}
             {syntaxProblems.length > 0 ? (
               <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div
@@ -331,8 +356,8 @@ export default function OutputPanel({ onRun }: OutputPanelProps) {
                   }}
                 >
                   <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Live Diagnostics ({errorCount} {errorCount === 1 ? 'error' : 'errors'}
-                    {warningCount > 0 ? `, ${warningCount} ${warningCount === 1 ? 'warning' : 'warnings'}` : ''})
+                    Editor checks: {errorCount} {errorCount === 1 ? 'error' : 'errors'}
+                    {warningCount > 0 ? `, ${warningCount} ${warningCount === 1 ? 'warning' : 'warnings'}` : ''}
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
                     Click an item to jump to code
@@ -407,56 +432,7 @@ export default function OutputPanel({ onRun }: OutputPanelProps) {
                   );
                 })}
               </div>
-            ) : lastResult?.classification && lastResult.classification.tier !== 'none' ? (
-              <div style={{ padding: '8px 0' }} className="animate-fade-in">
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    marginBottom: 12,
-                  }}
-                >
-                  <span
-                    className={`badge badge-${
-                      lastResult.classification.tier === 'syntax'
-                        ? 'error'
-                        : lastResult.classification.tier === 'logic'
-                        ? 'warning'
-                        : 'info'
-                    }`}
-                  >
-                    {lastResult.classification.tier.toUpperCase()}
-                  </span>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>
-                    {lastResult.classification.category}
-                  </span>
-                </div>
-                <div
-                  style={{
-                    background: 'var(--bg-tertiary)',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: '10px 14px',
-                    fontSize: 13,
-                    fontFamily: 'var(--font-mono), monospace',
-                    color: 'var(--accent-danger)',
-                    marginBottom: 12,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {lastResult.classification.message}
-                </div>
-                <div
-                  style={{
-                    fontSize: 13,
-                    color: 'var(--text-secondary)',
-                    lineHeight: 1.6,
-                  }}
-                >
-                  💡 <strong>Hint:</strong> {lastResult.classification.suggestion}
-                </div>
-              </div>
-            ) : (
+            ) : diagnosis ? null : (
               <div
                 style={{
                   display: 'flex',
@@ -470,9 +446,9 @@ export default function OutputPanel({ onRun }: OutputPanelProps) {
                 }}
               >
                 <CircleCheck size={28} style={{ color: 'var(--accent-success)' }} />
-                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>No syntax problems detected</span>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                  Code editor has zero syntax warnings or errors. Ready to execute!
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>No problems found</span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Run your code to check it. Any error will be explained here.
                 </span>
               </div>
             )}

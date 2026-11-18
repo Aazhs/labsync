@@ -117,6 +117,10 @@ Without Supabase, LabSync runs in **demo mode**: labs, teacher accounts and stud
 1. Create a project at [supabase.com](https://supabase.com) and copy the URL and anon key into `.env.local`.
 2. Open the SQL editor and run [`supabase/schema.sql`](supabase/schema.sql). It is safe to re-run and upgrades older LabSync schemas.
 3. Under **Authentication → URL Configuration**, add your site URL (e.g. `http://localhost:3000`) so email confirmation links work.
+4. For a quick demo, turn off **Authentication → Sign In / Providers → Email → Confirm email**, so teacher accounts work immediately without a confirmation email.
+5. Add the same two variables in **Vercel → Project Settings → Environment Variables** and redeploy. `NEXT_PUBLIC_` values are baked in at build time, so a redeploy is required.
+
+Updates are pushed over Supabase Realtime. If a network blocks websockets (common on college Wi-Fi), each screen falls back to checking every 2 seconds, so nothing waits for a refresh.
 
 How access works:
 

@@ -14,6 +14,14 @@ interface CodeEditorProps {
   onChange?: (value: string) => void;
 }
 
+/** Monaco measures glyphs on a canvas, so it needs the resolved font name, not a CSS var. */
+function editorFontFamily(): string {
+  const fallback = "ui-monospace, 'SF Mono', Menlo, monospace";
+  if (typeof document === 'undefined') return fallback;
+  const plex = getComputedStyle(document.documentElement).getPropertyValue('--font-plex-mono').trim();
+  return plex ? `${plex}, ${fallback}` : fallback;
+}
+
 export default function CodeEditor({ readOnly = false, value, disableCopy = false, onChange }: CodeEditorProps) {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
@@ -263,7 +271,7 @@ export default function CodeEditor({ readOnly = false, value, disableCopy = fals
             },
             className: isWarn ? 'monaco-line-syntax-warning' : 'monaco-line-syntax-error',
             overviewRuler: {
-              color: isWarn ? 'rgba(212, 148, 58, 0.8)' : 'rgba(224, 74, 59, 0.8)',
+              color: isWarn ? 'color-mix(in srgb, var(--brand) 80%, transparent)' : 'rgba(224, 74, 59, 0.8)',
               position: monacoRef.current!.editor.OverviewRulerLane.Right,
             },
           },
@@ -349,7 +357,7 @@ export default function CodeEditor({ readOnly = false, value, disableCopy = fals
             contextmenu: !disableCopy,
             selectionClipboard: !disableCopy,
             fontSize,
-            fontFamily: "'Geist Mono', 'Fira Code', 'JetBrains Mono', monospace",
+            fontFamily: editorFontFamily(),
             fontLigatures: true,
             minimap: { enabled: false },
             glyphMargin: true,

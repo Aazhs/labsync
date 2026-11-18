@@ -305,7 +305,7 @@ export default function FileExplorer() {
                       fontSize: 9,
                       padding: '1px 4px',
                       borderRadius: 'var(--radius-xs)',
-                      background: 'rgba(212, 148, 58, 0.12)',
+                      background: 'color-mix(in srgb, var(--brand) 12%, transparent)',
                       color: 'var(--brand-light)',
                       fontWeight: 700,
                       letterSpacing: '0.04em',

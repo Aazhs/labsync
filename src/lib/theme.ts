@@ -12,20 +12,25 @@ function subscribe(callback: () => void) {
 }
 
 function getSnapshot(): Theme {
-  if (typeof window === 'undefined') return 'dark';
-  const stored = localStorage.getItem(STORAGE_KEY);
-  return stored === 'light' || stored === 'dark' ? stored : 'dark';
+  if (typeof window === 'undefined') return 'light';
+  try {
+    return localStorage.getItem(STORAGE_KEY) === 'dark' ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
 }
 
 function getServerSnapshot(): Theme {
-  return 'dark';
+  return 'light';
 }
 
 export function useTheme() {
   const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const setTheme = useCallback((t: Theme) => {
-    localStorage.setItem(STORAGE_KEY, t);
+    try {
+      localStorage.setItem(STORAGE_KEY, t);
+    } catch {}
     document.documentElement.setAttribute('data-theme', t);
     window.dispatchEvent(new Event('storage'));
   }, []);
