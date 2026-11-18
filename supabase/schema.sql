@@ -141,6 +141,16 @@ create policy "Teachers remove their own students"
         where l.id = lab_students.lobby_id and l.teacher_id = auth.uid()
     ));
 
+-- ─── Table privileges ──────────────────────────────────────────────────────
+-- Newer Supabase projects don't grant API roles access to new tables, so grant
+-- it explicitly. Row Level Security above still decides which rows each role sees.
+-- lab_student_secrets is deliberately left ungranted.
+
+grant usage on schema public to anon, authenticated;
+grant select on public.lab_lobbies to anon, authenticated;
+grant insert, update, delete on public.lab_lobbies to authenticated;
+grant select, delete on public.lab_students to authenticated;
+
 -- ─── Student functions (the only way students write data) ───────────────────
 
 -- Join (or re-join) a lab. Re-joining with the same PRN reuses the seat and

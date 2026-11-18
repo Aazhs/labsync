@@ -216,3 +216,35 @@ export async function logoutTeacher(): Promise<void> {
   cacheTeacherSession(null);
   await getSupabase()?.auth.signOut();
 }
+
+// ─── Shared demo account ───
+//
+// One click signs in as a shared demo instructor so anyone can try LabSync, including on the
+// deployed site with Supabase, where students can then join from their own devices. Everyone
+// who clicks shares this account and its labs; Row Level Security keeps it away from other
+// teachers' labs. Set NEXT_PUBLIC_DISABLE_DEMO_ACCOUNT=true to remove the button.
+
+export const DEMO_ACCOUNT_ENABLED = process.env.NEXT_PUBLIC_DISABLE_DEMO_ACCOUNT !== 'true';
+
+const DEMO_TEACHER = {
+  name: 'Demo Instructor',
+  email: `demo.instructor${TEACHER_EMAIL_DOMAIN}`,
+  password: 'labsync-demo-account',
+};
+
+const CONFIRM_EMAIL_HELP =
+  'The demo account needs email confirmation turned off: in Supabase, open Authentication → Sign In / Providers → Email and switch off “Confirm email”.';
+
+export async function signInDemoTeacher(): Promise<AuthResult> {
+  const login = await loginTeacher(DEMO_TEACHER.email, DEMO_TEACHER.password);
+  if (login.success) return login;
+  if (/confirm/i.test(login.error || '')) return { success: false, error: CONFIRM_EMAIL_HELP };
+
+  const signup = await signupTeacher(DEMO_TEACHER.name, DEMO_TEACHER.email, DEMO_TEACHER.password);
+  if (signup.success) return signup;
+  if (signup.notice) return { success: false, error: CONFIRM_EMAIL_HELP };
+  if (/already|registered|exists/i.test(signup.error || '')) {
+    return { success: false, error: 'The demo account exists with a different password. Delete demo.instructor in Supabase → Authentication → Users, then try again.' };
+  }
+  return { success: false, error: signup.error || 'Could not open the demo account.' };
+}

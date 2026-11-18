@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -9,14 +9,11 @@ import {
   MIN_PASSWORD_LENGTH,
   signupTeacher,
   TEACHER_EMAIL_DOMAIN,
+  DEMO_ACCOUNT_ENABLED,
+  signInDemoTeacher,
 } from '@/lib/teacherAuth';
 import { isDemoMode } from '@/lib/lobbyService';
 
-const DEMO_TEACHER = {
-  name: 'Demo Instructor',
-  email: `demo.instructor${TEACHER_EMAIL_DOMAIN}`,
-  password: 'labsync-demo',
-};
 
 function LoginContent() {
   const router = useRouter();
@@ -60,11 +57,11 @@ function LoginContent() {
     setLoading(false);
   };
 
-  const useDemoAccount = async () => {
+  const openDemoAccount = async () => {
     setLoading(true);
     setError(null);
-    let res = await loginTeacher(DEMO_TEACHER.email, DEMO_TEACHER.password);
-    if (!res.success) res = await signupTeacher(DEMO_TEACHER.name, DEMO_TEACHER.email, DEMO_TEACHER.password);
+    setNotice(null);
+    const res = await signInDemoTeacher();
     if (res.success) {
       router.push(next);
       return;
@@ -72,6 +69,22 @@ function LoginContent() {
     setError(res.error || 'Could not open the demo account.');
     setLoading(false);
   };
+
+  // /login?demo=1 (the landing page's "Try the live demo") signs straight in.
+  const autoDemo = searchParams.get('demo') === '1' && DEMO_ACCOUNT_ENABLED;
+  const autoDemoStarted = useRef(false);
+  useEffect(() => {
+    if (!autoDemo) return;
+    // Deferred so the effect doesn't set state synchronously. The ref is set inside the
+    // callback so a cancelled attempt (React re-running effects in development) can retry.
+    const id = setTimeout(() => {
+      if (autoDemoStarted.current) return;
+      autoDemoStarted.current = true;
+      openDemoAccount();
+    }, 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDemo]);
 
   const signup = mode === 'signup';
 
@@ -129,12 +142,16 @@ function LoginContent() {
           </button>
         </p>
 
-        {isDemoMode && (
+        {DEMO_ACCOUNT_ENABLED && (
           <div className="auth-demo">
-            <button type="button" className="btn btn-secondary auth-btn" disabled={loading} onClick={useDemoAccount}>
-              Continue with a demo teacher account
+            <button type="button" className="btn btn-secondary auth-btn" disabled={loading} onClick={openDemoAccount}>
+              {loading && autoDemo ? 'Opening the demo…' : 'Continue with the demo teacher account'}
             </button>
-            <p>Demo mode: accounts and labs are stored in this browser only.</p>
+            <p>
+              {isDemoMode
+                ? 'Demo mode: accounts and labs are stored in this browser only.'
+                : 'A shared account for trying LabSync. Students can join its labs from any device.'}
+            </p>
           </div>
         )}
       </form>

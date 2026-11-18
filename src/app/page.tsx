@@ -152,8 +152,8 @@ export default function LandingPage() {
             </form>
 
             <p className="lp-hero-alt">
-              Teaching? <Link href={teacher ? '/dashboard' : '/login?mode=signup'}>Create a lab</Link>
-              {' '}or <Link href="/ide">try the editor on its own</Link>.
+              Teaching? <Link href={teacher ? '/dashboard' : '/login?demo=1'}>Try the live demo</Link>
+              {' '}as an instructor, or <Link href={teacher ? '/dashboard' : '/login?mode=signup'}>create your account</Link>.
             </p>
           </div>
 
