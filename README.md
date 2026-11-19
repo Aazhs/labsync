@@ -104,7 +104,8 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | **Yes, for real labs** |
 | `JUDGE0_API_URL` | Code execution engine | No — defaults to `https://ce.judge0.com` (free, no key needed) |
 | `JUDGE0_API_KEY` | Private Judge0 key | No — only for a private/paid Judge0 instance |
-| `GEMINI_API_KEY` / `GEMINI_MODEL` | AI-powered hints | No — falls back to built-in rule-based hints |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | Gemini hints and on-demand visualiser drawings | No |
+| `GEMINI_DRAWING_MODEL` | Optional model override for drawings | No |
 | `OPENAI_API_KEY` / `OPENAI_MODEL` | Alternative AI provider | No |
 | `LABSYNC_LOCAL_EXEC` | `true` runs code with your local compilers instead of Judge0 | No — **development only**, ignored in production builds |
 
@@ -217,3 +218,8 @@ Distributed under the MIT License. See `LICENSE` for more information.
 **LabSync** · Diagnostic intelligence for college programming labs
 
 </div>
+
+
+### Gemini drawings in the IDE
+
+Set `GEMINI_API_KEY` on the server (locally in `.env.local`). Open **Visualise → Draw with Gemini** to send the selected file’s source to Gemini. LabSync reads the generated HTML figure and renders its SVG shapes. Source-map steps highlight the matching parts of the drawing. During a recorded run, variable labels and array cells use values captured by the runner. Playback and switching back to the built-in sketch reuse the drawing while the file is open.

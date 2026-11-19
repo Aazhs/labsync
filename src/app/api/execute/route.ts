@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { instrument, readRecording } from '@/lib/visualiser/trace';
+import { runtimeLanguages } from '@/lib/visualiser/source';
 import { classifyError } from '@/lib/classifier';
 import { createRateLimiter, getClientIp } from '@/lib/rateLimit';
 
@@ -213,7 +215,7 @@ export async function POST(request: NextRequest) {
     return errorResponse('Too many runs in a short time. Wait a few seconds and try again.', 429);
   }
 
-  let body: { code?: unknown; languageId?: unknown; stdin?: unknown };
+  let body: { code?: unknown; languageId?: unknown; stdin?: unknown; trace?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -237,7 +239,17 @@ export async function POST(request: NextRequest) {
     return errorResponse(`Input is too large (limit ${MAX_STDIN_BYTES / 1024} KB).`, 413);
   }
 
-  const code = prepareExecutableCode(rawCode, languageId);
+  const language = Object.keys(runtimeLanguages).find(key => runtimeLanguages[key] === languageId)!;
+  const mark = body.trace === true ? `__LS_${crypto.randomUUID().replaceAll('-', '')}__` : '';
+  let code = rawCode;
+  if (mark) {
+    try {
+      code = instrument(rawCode, language, mark, language === 'python' ? prepareExecutableCode(rawCode, languageId) : rawCode);
+    } catch {
+      return errorResponse('Could not prepare this file for recording. Its source walkthrough is available.', 422);
+    }
+  }
+  if (!mark || language !== 'python') code = prepareExecutableCode(code, languageId);
 
   let result: ExecutionResult;
   try {
@@ -259,6 +271,15 @@ export async function POST(request: NextRequest) {
     result.status = { id: 13, description: 'Waiting for Input' };
     result.is_missing_input = true;
     result.stderr = null;
+  }
+
+  if (mark) {
+    const recording = readRecording(result.stdout || '', rawCode, language, mark);
+    return NextResponse.json({
+      recording,
+      status: result.status,
+      diagnostic: (result.compile_output || result.stderr || '').slice(0, 1600),
+    });
   }
 
   const classification = classifyError(result.stderr, result.compile_output, result.status.description);

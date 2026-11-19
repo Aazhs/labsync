@@ -26,6 +26,8 @@ import AIHintPanel from '@/components/AIHintPanel';
 import { Plus, X, Eye, EyeOff, Radio, Lock, Hand, CheckCircle2, CloudOff } from 'lucide-react';
 import { soundManager } from '@/lib/sound';
 
+const CodeVisualiser = dynamic(() => import('@/components/visualiser/CodeVisualiser'), { ssr: false });
+
 // Dynamic import for Monaco (no SSR)
 const CodeEditor = dynamic(() => import('@/components/CodeEditor'), {
   ssr: false,
@@ -82,6 +84,7 @@ function IDEPageContent() {
   const roomCode = searchParams.get('room');
   const wantsTeacher = searchParams.get('role') === 'teacher';
 
+  const [visualising, setVisualising] = useState(false);
   const [lobby, setLobby] = useState<LabLobby | null>(null);
   const [roomError, setRoomError] = useState<string | null>(null);
   const [teacher] = useState(() => getTeacherSession());
@@ -713,6 +716,7 @@ function IDEPageContent() {
       <IDEHeader
         onRun={() => runCode()}
         onStop={stopCode}
+        onVisualise={() => setVisualising(true)}
         roomCode={roomCode}
         labTitle={lobby?.title}
         studentName={isTeacher ? null : studentSession?.name}
@@ -725,6 +729,9 @@ function IDEPageContent() {
         broadcastReady={isTeacher && workspaceReady}
         extraControls={studentControls}
       />
+
+      {visualising && <CodeVisualiser onClose={() => setVisualising(false)} locked={runLocked}
+        referenceAllowed={Boolean(roomCode && !isTeacher && broadcastEnabled && referenceCode)} />}
 
       <div className="ide-notices">
         {roomCode && lobbyStatus === 'paused' && (

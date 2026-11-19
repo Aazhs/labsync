@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Eye, Lock, Minus, Pause, Play, Plus, Settings, Sparkles, Square, X } from 'lucide-react';
+import { Eye, Lock, Minus, Pause, PencilRuler, Play, Plus, Settings, Sparkles, Square, X } from 'lucide-react';
 import { useIDEStore, LANGUAGES } from '@/lib/store';
 import { useTheme } from '@/lib/theme';
 import { updateLobbyBroadcast } from '@/lib/lobbyService';
@@ -11,6 +11,7 @@ import { updateLobbyBroadcast } from '@/lib/lobbyService';
 interface IDEHeaderProps {
   onRun: () => void;
   onStop: () => void;
+  onVisualise: () => void;
   roomCode?: string | null;
   labTitle?: string | null;
   studentName?: string | null;
@@ -39,6 +40,7 @@ const SHORTCUTS = [
 export default function IDEHeader({
   onRun,
   onStop,
+  onVisualise,
   roomCode,
   labTitle,
   studentName,
@@ -206,6 +208,9 @@ export default function IDEHeader({
           {roomCode && <span className="ih-lang">{language.label}</span>}
 
           {extraControls}
+          <button type="button" className="btn btn-secondary ih-btn" onClick={onVisualise} aria-haspopup="dialog">
+            <PencilRuler size={14} /> Visualise
+          </button>
 
           {isWeb && (
             <button
