@@ -220,6 +220,8 @@ Distributed under the MIT License. See `LICENSE` for more information.
 </div>
 
 
-### Gemini drawings in the IDE
+### Animated examples in the IDE
 
-Set `GEMINI_API_KEY` on the server (locally in `.env.local`). Open **Visualise → Draw with Gemini** to send the selected file’s source to Gemini. LabSync reads the generated HTML figure and renders its SVG shapes. Source-map steps highlight the matching parts of the drawing. During a recorded run, variable labels and array cells use values captured by the runner. Playback and switching back to the built-in sketch reuse the drawing while the file is open.
+Set `GEMINI_API_KEY` on the server, then open **Visualise → Animate with Gemini**. The selected file supplies the source for a worked example. Gemini chooses a layout and describes source-linked operations. LabSync animates those operations locally, so students can pause, step backward, and replay without another model request. The default animation model is `gemini-3.1-flash-lite` (fast enough for class); set `GEMINI_DRAWING_MODEL` to override it.
+
+**Play run** records the program with the current standard input in C, C++, Java, JavaScript, or Python. This view shows captured values and program output. The recorder captures up to 120 steps and displays a bounded selection of variables and collection elements.

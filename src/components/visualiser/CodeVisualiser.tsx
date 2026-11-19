@@ -22,8 +22,10 @@ import {
   Radio,
   Repeat2,
   RotateCcw,
+  SkipForward,
   SlidersHorizontal,
   SquareTerminal,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { useIDEStore } from '@/lib/store';
@@ -31,8 +33,9 @@ import { buildOutline, labels, runtimeLanguages, type Kind, type Scene } from '@
 import type { Recording } from '@/lib/visualiser/trace';
 import lessons from '@/lib/visualiser/lessons.json';
 import examples from '@/lib/visualiser/recordings.json';
-import GeminiDrawing from './GeminiDrawing';
-import { ArraySketch, HanoiSketch } from './DataSketch';
+import AnimationStage from './AnimationStage';
+import { executionStage, type Story } from '@/lib/visualiser/animation';
+import { HanoiSketch } from './DataSketch';
 import './visualiser.css';
 
 const recorded: Record<string, Recording> = examples;
@@ -178,7 +181,11 @@ function Player({ source, name, lang, locked, web, lesson, openCopy, openWeb }: 
   const lines = useMemo(() => (tooBig ? [] : source.split(/\r?\n/)), [source, tooBig]);
   const sample = lesson ?? lessons.find((l) => l.code === source && l.language === lang);
   const [recording, setRecording] = useState<Recording | null>(() => (sample ? recorded[sample.id] : null));
-  const [mode, setMode] = useState<'source' | 'run'>(recording ? 'run' : 'source');
+  const [mode, setMode] = useState<'source' | 'run' | 'story'>(recording ? 'run' : 'source');
+  const [story, setStory] = useState<Story | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const storyRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => storyRequest.current?.abort(), []);
   const [stdin, setStdin] = useState(sample?.stdin ?? '');
   const [inputOpen, setInputOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -192,46 +199,106 @@ function Player({ source, name, lang, locked, web, lesson, openCopy, openWeb }: 
   useEffect(() => () => request.current?.abort(), []);
   const canRun = !!runtimeLanguages[lang] && !web && !tooBig && !!source.trim();
   const trace = mode === 'run' ? recording : null;
-  const total = trace ? trace.frames.length + 1 : outline.scenes.length;
+  const beats = mode === 'story' ? story?.beats : undefined;
+  const beat = beats?.[index];
+  const total = beats ? beats.length : trace ? trace.frames.length + 1 : outline.scenes.length;
   const frame = trace?.frames[index];
   const finished = !!trace && index === trace.frames.length;
   const scene = trace
     ? frame &&
       (outline.scenes.find((s) => s.at === frame.at) ?? outline.scenes.find((s) => s.line === frame.line))
     : outline.scenes[index];
-  const line = frame?.line ?? scene?.line;
+  const line = beat?.line ?? frame?.line ?? scene?.line;
+  const stage = beat?.stage ?? (trace && frame ? executionStage(trace, index, lines[frame.line - 1]) : null);
   const previous = trace?.frames[index - 1];
   const output = finished ? trace?.output : frame?.output;
   const sourceMap = useMemo(() => {
     const map = new Map<number, number>();
-    const steps = trace ? trace.frames : outline.scenes;
+    const steps = beats ?? (trace ? trace.frames : outline.scenes);
     steps.forEach((s, i) => {
       if (!map.has(s.line)) map.set(s.line, i);
     });
     return map;
-  }, [trace, outline]);
+  }, [trace, outline, beats]);
+
+  // Steps that change the picture (a collection, or the output) get time to read. Bookkeeping steps
+  // such as loop counters and safety scans pass quickly, so long runs still feel like motion.
+  const keySteps = useMemo(() => {
+    if (!trace) return null;
+    const { frames } = trace;
+    const collections = frames.some((f) => f.grids || Object.values(f.values).some(Array.isArray));
+    const picture = (f: (typeof frames)[number]) =>
+      JSON.stringify(
+        collections
+          ? [f.grids, Object.entries(f.values).filter(([, v]) => Array.isArray(v)), f.output]
+          : [f.values, f.output],
+      );
+    const keys = new Set<number>([0, frames.length]);
+    frames.forEach((f, i) => {
+      if (i && picture(f) !== picture(frames[i - 1])) keys.add(i);
+    });
+    return keys;
+  }, [trace]);
+  const nextKey = keySteps ? [...keySteps].sort((a, b) => a - b).find((i) => i > index) : undefined;
 
   useEffect(() => {
     activeLine.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [line]);
   useEffect(() => {
     if (!playing) return;
-    const timer = window.setTimeout(() => {
-      setIndex((i) => Math.min(i + 1, total - 1));
-      if (index + 1 >= total - 1) setPlaying(false);
-    }, 1400 / speed);
+    const timer = window.setTimeout(
+      () => {
+        setIndex((i) => Math.min(i + 1, total - 1));
+        if (index + 1 >= total - 1) setPlaying(false);
+      },
+      (beats ? 2350 : keySteps ? (keySteps.has(index) ? 1500 : 320) : 1400) / speed,
+    );
     return () => clearTimeout(timer);
-  }, [index, playing, speed, total]);
+  }, [index, playing, speed, total, beats, keySteps]);
   const jump = (i: number) => {
     setPlaying(false);
     setIndex(i);
   };
-  const switchMode = (m: 'source' | 'run') => {
+  const switchMode = (m: 'source' | 'run' | 'story') => {
     jump(0);
     setMode(m);
   };
 
-  async function record() {
+  async function animateExample() {
+    if (story) {
+      switchMode('story');
+      return;
+    }
+    if (storyRequest.current || tooBig || !source.trim()) return;
+    const control = new AbortController();
+    storyRequest.current = control;
+    setGenerating(true);
+    setMessage('');
+    setPlaying(false);
+    try {
+      const res = await fetch('/api/visualiser/drawing', {
+        method: 'POST',
+        signal: control.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source, language: lang, format: 'storyboard' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.story?.beats?.length)
+        throw Error(data.error || 'Could not generate an animated example.');
+      if (!control.signal.aborted) {
+        setStory(data.story);
+        switchMode('story');
+        setPlaying(!window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      }
+    } catch (err) {
+      if (!control.signal.aborted) setMessage(err instanceof Error ? err.message : 'Could not reach Gemini.');
+    } finally {
+      if (!control.signal.aborted) setGenerating(false);
+      storyRequest.current = null;
+    }
+  }
+
+  async function record(autoplay = false) {
     if (!canRun || locked || busy) return;
     const control = new AbortController();
     request.current = control;
@@ -259,6 +326,7 @@ function Player({ source, name, lang, locked, web, lesson, openCopy, openWeb }: 
         setRecording(next);
         setOutcome(success ? 'Program finished' : data.status.description);
         switchMode('run');
+        if (autoplay && next.frames.length) setPlaying(true);
         setInputOpen(false);
       }
     } catch (err) {
@@ -282,6 +350,11 @@ function Player({ source, name, lang, locked, web, lesson, openCopy, openWeb }: 
           <button aria-pressed={mode === 'source'} onClick={() => switchMode('source')}>
             <Layers size={15} /> Source map
           </button>
+          {story && (
+            <button aria-pressed={mode === 'story'} onClick={() => switchMode('story')}>
+              <Sparkles size={15} /> Illustrated example
+            </button>
+          )}
           {recording && (
             <button aria-pressed={mode === 'run'} onClick={() => switchMode('run')}>
               <ListRestart size={15} /> Recorded run
@@ -289,6 +362,18 @@ function Player({ source, name, lang, locked, web, lesson, openCopy, openWeb }: 
           )}
         </div>
         <span className="vs-spacer" />
+        {!story && !tooBig && source.trim() && (
+          <button
+            className="vs-record"
+            disabled={generating || busy}
+            aria-busy={generating}
+            title="Send this file to Gemini for a step-by-step illustrated example"
+            onClick={animateExample}
+          >
+            <Sparkles size={15} />
+            {generating ? 'Building animation…' : 'Animate with Gemini'}
+          </button>
+        )}
         {openCopy && (
           <button className="vs-tool" onClick={openCopy}>
             <ArrowDownToLine size={14} /> Open a copy in IDE
@@ -309,7 +394,7 @@ function Player({ source, name, lang, locked, web, lesson, openCopy, openWeb }: 
             >
               <SlidersHorizontal size={14} /> Input
             </button>
-            <button className="vs-record" disabled={busy || locked} onClick={record}>
+            <button className="vs-record" disabled={busy || generating || locked} onClick={() => record()}>
               <Radio size={15} />
               {locked ? 'Lab paused' : busy ? 'Recording…' : 'Record run'}
             </button>
@@ -364,44 +449,45 @@ function Player({ source, name, lang, locked, web, lesson, openCopy, openWeb }: 
         <section className="vs-paper" aria-label="Sketch playback">
           <div className="vs-heading">
             <div className="vs-context">
-              {lesson ? lesson.collection + ' lesson' : trace ? 'Execution sketch' : 'Source walkthrough'}
+              {beat
+                ? 'AI illustrated example'
+                : lesson
+                  ? lesson.collection + ' lesson'
+                  : trace
+                    ? 'Recorded execution'
+                    : 'Source walkthrough'}
             </div>
-            <h3>{lesson?.title ?? (trace ? 'Follow the run' : 'Inside ' + name)}</h3>
-            {lesson && <p>{lesson.goal}</p>}
+            <h3>{beat ? story?.title : (lesson?.title ?? (trace ? 'Follow the run' : 'Inside ' + name))}</h3>
+            {beat ? <p>{story?.example}</p> : lesson && <p>{lesson.goal}</p>}
           </div>
           {total > 0 && (
             <>
               <div className="vs-caption">
                 <span>{finished ? 'Result' : 'Line ' + line}</span>
                 <span>
-                  {frame
-                    ? frame.leaving
-                      ? 'Leaving this scope'
-                      : 'Before this statement'
-                    : scene
-                      ? categories[scene.kind]
-                      : ''}
+                  {beat
+                    ? 'Illustrated step'
+                    : frame
+                      ? frame.leaving
+                        ? 'Leaving this scope'
+                        : 'Before this statement'
+                      : scene
+                        ? categories[scene.kind]
+                        : ''}
                 </span>
               </div>
-              <h4>{finished ? outcome : (scene?.title ?? 'Visit this line')}</h4>
+              <h4>{beat?.title ?? (finished ? outcome : (scene?.title ?? 'Visit this line'))}</h4>
             </>
           )}
-          <GeminiDrawing
-            source={source}
-            language={lang}
-            line={line}
-            frame={frame}
-            previous={previous}
-            finished={finished}
-          >
-            {total > 0 && !finished && (
-              <Sketch key={mode + index} scene={scene} fallback={lines[(line ?? 1) - 1]} />
-            )}
-            {trace && sample?.id === 'tower-of-hanoi' && (
-              <HanoiSketch count={Number(stdin.trim().split(/\s+/)[0])} output={output ?? ''} />
-            )}
-            {frame && <ArraySketch frame={frame} />}
-          </GeminiDrawing>
+          {stage ? (
+            <AnimationStage stage={stage} />
+          ) : (
+            total > 0 &&
+            !finished && <Sketch key={mode + index} scene={scene} fallback={lines[(line ?? 1) - 1]} />
+          )}
+          {trace && sample?.id === 'tower-of-hanoi' && (
+            <HanoiSketch count={Number(stdin.trim().split(/\s+/)[0])} output={output ?? ''} />
+          )}
           {total > 0 ? (
             <>
               {finished ? (
@@ -414,14 +500,22 @@ function Player({ source, name, lang, locked, web, lesson, openCopy, openWeb }: 
                 </div>
               ) : (
                 <p className="vs-detail">
-                  {scene?.detail ?? 'The runner reached this line of the active file.'}
+                  {beat?.detail ?? scene?.detail ?? 'The runner reached this line of the active file.'}
                 </p>
               )}
               {frame && (
                 <div className="vs-memory">
                   <h5>Values in scope</h5>
-                  {Object.keys(frame.values).length ? (
-                    Object.entries(frame.values).map(([key, value]) => {
+                  {Object.keys(frame.values).length || frame.grids ? (
+                    Object.entries({
+                      ...frame.values,
+                      ...Object.fromEntries(
+                        Object.entries(frame.grids ?? {}).map(([key, rows]) => [
+                          key,
+                          rows.length + ' rows in view',
+                        ]),
+                      ),
+                    }).map(([key, value]) => {
                       const previousValue = previous?.values[key];
                       return (
                         <div className="vs-binding" key={key}>
@@ -502,13 +596,21 @@ function Player({ source, name, lang, locked, web, lesson, openCopy, openWeb }: 
         </button>
         <button
           className="vs-play"
-          disabled={total < 2}
+          disabled={busy || generating || (total < 2 && !(mode === 'source' && canRun && !locked))}
           onClick={() => {
+            if (mode === 'source' && canRun && !locked) {
+              if (recording) {
+                switchMode('run');
+                setPlaying(recording.frames.length > 0);
+              } else void record(true);
+              return;
+            }
             if (index === total - 1) setIndex(0);
             setPlaying(!playing);
           }}
         >
-          {playing ? <Pause size={16} /> : <Play size={16} />} {playing ? 'Pause' : 'Play'}
+          {playing ? <Pause size={16} /> : <Play size={16} />}{' '}
+          {playing ? 'Pause' : mode === 'source' && canRun && !locked ? 'Play run' : 'Play'}
         </button>
         <button
           className="vs-icon"
@@ -518,6 +620,17 @@ function Player({ source, name, lang, locked, web, lesson, openCopy, openWeb }: 
         >
           <ChevronRight size={20} />
         </button>
+        {keySteps && (
+          <button
+            className="vs-icon"
+            disabled={nextKey === undefined}
+            onClick={() => nextKey !== undefined && jump(nextKey)}
+            aria-label="Next change"
+            title="Jump to the next step that changes the picture"
+          >
+            <SkipForward size={17} />
+          </button>
+        )}
         <span className="vs-counter">
           {total ? index + 1 : 0} / {total}
         </span>

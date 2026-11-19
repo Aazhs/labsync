@@ -2,6 +2,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createRateLimiter, getClientIp } from '@/lib/rateLimit';
 import { compileDrawing } from '@/lib/visualiser/drawing';
 
+import { compileStory } from '@/lib/visualiser/animation';
+import { storyPrompt, storySchema } from '@/lib/visualiser/storyPrompt';
+
+export const maxDuration = 120;
 const limited = createRateLimiter(8, 60_000);
 const system = `Draw one clear classroom illustration of the supplied program as an HTML fragment:
 <figure><svg viewBox="0 0 600 260">...</svg><figcaption>One short sentence explaining the main idea.</figcaption></figure>.
@@ -32,12 +36,14 @@ export async function POST(request: Request) {
   if (limited(getClientIp(request.headers)))
     return fail('Too many drawing requests. Try again in a minute.', 429);
 
+  const animate = body.format === 'storyboard';
   const model =
-    process.env.GEMINI_DRAWING_MODEL?.trim() || process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite';
+    process.env.GEMINI_DRAWING_MODEL?.trim() ||
+    (animate ? 'gemini-3.1-flash-lite' : process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite');
   const lines = (body.source as string).split(/\r?\n/);
-  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(45_000)]);
+  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(animate ? 95_000 : 45_000)]);
   try {
-    const generate = () =>
+    const generate = (repair = false) =>
       fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
         {
@@ -46,7 +52,7 @@ export async function POST(request: Request) {
           cache: 'no-store',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
           body: JSON.stringify({
-            systemInstruction: { parts: [{ text: system }] },
+            systemInstruction: { parts: [{ text: animate ? storyPrompt : system }] },
             contents: [
               {
                 role: 'user',
@@ -54,13 +60,26 @@ export async function POST(request: Request) {
                   {
                     text: JSON.stringify({
                       language: body.language,
+                      ...(repair
+                        ? {
+                            revision:
+                              'The previous plan could not be played. Keep the example small. Check all line numbers, slot indices and edits; include at least three distinct actions.',
+                          }
+                        : {}),
                       lines: lines.map((text, i) => [i + 1, text]),
                     }),
                   },
                 ],
               },
             ],
-            generationConfig: { maxOutputTokens: 8192 },
+            generationConfig: animate
+              ? {
+                  maxOutputTokens: 8192,
+                  responseMimeType: 'application/json',
+                  responseJsonSchema: storySchema,
+                  ...(/^gemini-3[.-]/.test(model) ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
+                }
+              : { maxOutputTokens: 8192 },
           }),
         },
       );
@@ -75,15 +94,30 @@ export async function POST(request: Request) {
     if ([400, 401, 403, 404].includes(res.status))
       return fail('Gemini rejected the drawing request. Check the server API key and drawing model.', 502);
     if (!res.ok) return fail('Gemini is unavailable. You can retry the drawing.', 502);
-    const candidate = (await res.json()).candidates?.[0];
-    const markup = candidate?.content?.parts
-      ?.filter((p: { thought?: boolean; text?: string }) => !p.thought && typeof p.text === 'string')
-      .map((p: { text: string }) => p.text)
-      .join('');
-    if (!markup || candidate.finishReason !== 'STOP')
-      return fail('Gemini did not finish a drawing. Try again.', 502);
+    async function content(response: Response) {
+      const candidate = (await response.json()).candidates?.[0];
+      if (candidate?.finishReason !== 'STOP') throw Error('Incomplete drawing');
+      return (
+        candidate.content?.parts
+          ?.filter((p: { thought?: boolean; text?: string }) => !p.thought && typeof p.text === 'string')
+          .map((p: { text: string }) => p.text)
+          .join('') || ''
+      );
+    }
+    if (animate) {
+      let story;
+      try {
+        story = compileStory(JSON.parse(await content(res)), lines.length);
+      } catch {
+        const repaired = await generate(true);
+        if (!repaired.ok)
+          return fail('Could not generate playable steps. The recorded run is available.', 502);
+        story = compileStory(JSON.parse(await content(repaired)), lines.length);
+      }
+      return Response.json({ story }, { headers: { 'Cache-Control': 'no-store' } });
+    }
     return Response.json(
-      { drawing: compileDrawing(markup, lines.length) },
+      { drawing: compileDrawing(await content(res), lines.length) },
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch {

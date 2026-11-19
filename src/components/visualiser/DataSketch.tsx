@@ -1,5 +1,3 @@
-import type { Frame } from '@/lib/visualiser/trace';
-
 // For Hanoi the program itself announces each move. Rebuild the rods from that output,
 // so stepping backwards and replaying a different input always agree with the run.
 export function HanoiSketch({ count, output }: { count: number; output: string }) {
@@ -39,46 +37,6 @@ export function HanoiSketch({ count, output }: { count: number; output: string }
               }}
             >
               {height >= 13 ? disk : ''}
-            </div>
-          );
-        })}
-      </div>
-    </figure>
-  );
-}
-
-// Bar positions follow the captured array. Stable keys let an in-place swap travel
-// across the sketch; a second occurrence index distinguishes equal values.
-export function ArraySketch({ frame }: { frame: Frame }) {
-  const entry = Object.entries(frame.values).find(
-    ([, v]) =>
-      Array.isArray(v) &&
-      v.length > 0 &&
-      v.length <= 12 &&
-      v.every((x) => x.trim() && Number.isFinite(Number(x))),
-  );
-  if (!entry || !Array.isArray(entry[1])) return null;
-  const [name, values] = entry as [string, string[]];
-  const magnitude = Math.max(1, ...values.map((x) => Math.abs(Number(x))));
-  const pointers = ['low', 'high', 'mid', 'i'].filter((k) => frame.values[k] !== undefined);
-  return (
-    <figure className="vs-array" aria-label={name + ' array diagram'}>
-      <figcaption>{name}</figcaption>
-      <div className="vs-bars">
-        {values.map((v, i) => {
-          const key = v + '/' + values.slice(0, i).filter((x) => x === v).length;
-          const flags = pointers.filter((k) => Number(frame.values[k]) === i);
-          return (
-            <div
-              className={'vs-bar-slot' + (flags.length ? ' vs-pointed' : '')}
-              key={key}
-              style={{ left: (i * 100) / values.length + '%', width: 100 / values.length + '%' }}
-            >
-              <span className="vs-bar" style={{ height: 19 + (Math.abs(Number(v)) / magnitude) * 37 }}>
-                {v}
-              </span>
-              <small>{i}</small>
-              <strong>{flags.join(' · ')}</strong>
             </div>
           );
         })}

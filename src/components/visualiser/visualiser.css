@@ -87,27 +87,28 @@
   .vs-footer select { padding: 5px 0; }
 }
 @media(prefers-reduced-motion: reduce) { .vs-dialog *, .vs-dialog *::before { animation: none !important; transition: none !important; } }
-.vs-array,.vs-hanoi { margin: 15px 0 8px; }
-.vs-array figcaption { font: 600 12px var(--font-code),monospace; }
-.vs-bars { height: 100px; position: relative; }
-.vs-bar-slot { position: absolute; bottom: 0; padding: 0 2px; display: flex; flex-direction: column; align-items: stretch; text-align: center; transition: left .45s ease; }
-.vs-bar { display: grid; align-content: end; padding-bottom: 3px; font: 600 12px var(--font-code),monospace; background: #bed9b9; border: 1.4px solid #4d6555; border-radius: 5px 7px 2px 3px; overflow: hidden; }
-.vs-bar-slot small,.vs-bar-slot strong { font: 10px/1.5 var(--font-code),monospace; min-height: 15px; }
-.vs-bar-slot strong { color: #735426; }
-.vs-pointed .vs-bar { background: #f2d698; }
+.vs-hanoi { margin: 15px 0 8px; }
 .vs-hanoi { padding: 8px 4px 24px; }
 .vs-rods { height: 120px; position: relative; display: flex; border-bottom: 3px solid #526355; }
 .vs-rod { width: 33.333%; text-align: center; position: relative; }
 .vs-rod::before { content: ''; position: absolute; bottom: 0; height: 97%; width: 5px; left: 50%; border-radius: 4px 3px 0 0; background: #8b947a; }
 .vs-rod > span:first-child { position: absolute; top: 100%; margin-top: 4px; left: 50%; transform: translateX(-50%); font: 12px var(--font-code),monospace; }
 .vs-disk { position: absolute; transform: translateX(-50%); text-align: center; border: 1.3px solid #536353; border-radius: 5px 7px 4px 6px; font: 10px/1.4 var(--font-code),monospace; transition: left .48s ease-in-out, bottom .35s ease; }
-.vs-ai-tools { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
-.vs-ai-tools button { border: 1px solid #a6bea7; background: #edf4e7; }
-.vs-ai-tools span, .vs-ai-figure figcaption { font-size: 12px; color: #4c6351; }
-.vs-ai-error { margin: 6px 0 12px; color: #75411f; font-size: 13px; }
-.vs-ai-figure { margin: 0; padding: 10px; border: 1.5px solid #778a73; border-radius: 10px 13px 8px 11px; background: #fffdf5; }
-.vs-ai-figure svg { display: block; width: 100%; height: auto; max-height: 320px; color: #304c3c; }
-.vs-ai-figure figcaption { padding: 6px 4px 0; }
-.vs-ai-hot { filter: drop-shadow(0 0 3px #d69a2b); }
-.vs-ai-changed > :is(rect,circle,ellipse,path,polygon) { stroke: #9d6914; stroke-width: 3px; fill: #ffe7a3; }
-.vs-ai-figure g { transition: filter .22s ease-out; }
+.vs-stage { margin:12px 0; padding:12px 16px; background:#fffdf6; border:1.5px solid #788b74; border-radius:12px 8px 11px 9px; box-shadow:2px 3px 0 #dde2d2; }
+.vs-stage figcaption { color:#34523d; font:600 13px var(--font-code),monospace; }
+.vs-stage svg { display:block; margin:auto; width:100%; min-height:80px; }
+.vs-stage line { stroke:#84917e; stroke-width:2; }
+.vs-stage line.hot { stroke:#a76a13; stroke-width:3; }
+.vs-moving-tile, .vs-stage-cursor { transition:transform .55s cubic-bezier(.24,.78,.24,1); }
+.vs-moving-tile rect { fill:#e3eddb; stroke:#687e62; stroke-width:1.5; transition:fill .35s; }
+.vs-moving-tile.active rect { fill:#ffe4a2; stroke:#926819; }
+.vs-moving-tile.write rect { fill:#bce2cf; }
+/* Blank slots are spacing in node diagrams, but a visible empty cell in arrays and grids. */
+.vs-moving-tile.empty rect { fill:transparent; stroke-dasharray:4 4; stroke-opacity:.45; }
+.vs-stage-graph .vs-moving-tile.empty:not(.active), .vs-stage-stack .vs-moving-tile.empty:not(.active),
+.vs-stage-memory .vs-moving-tile.empty:not(.active) { opacity:0; }
+.vs-tile-value { fill:#273d30; font-family:var(--font-code),monospace; animation:vs-ink-in .42s ease-out both; }
+.vs-tile-name { fill:#4a6050; font:10px var(--font-code),monospace; }
+.vs-stage-cursor { pointer-events:none; }
+.vs-stage-cursor rect { fill:none; stroke:#a56b14; stroke-width:2.5; }
+@keyframes vs-ink-in { from {opacity:0; transform:translateY(-6px)} to {opacity:1; transform:translateY(0)} }

@@ -31,7 +31,7 @@ function record(language: string, source: string, stdin = '') {
         return execFileSync('java', ['Main'], opts);
       }
       if (language === 'c' || language === 'cpp') {
-        execFileSync(command, [filename, '-o', 'main'], opts);
+        execFileSync(command, [...(language === 'cpp' ? ['-std=c++17'] : []), filename, '-o', 'main'], opts);
         return execFileSync(join(cwd, 'main'), [], opts);
       }
       return execFileSync(command, [filename], opts);
@@ -74,10 +74,11 @@ test('C retains control flow and captures array swaps', (t) => {
 });
 
 test('recording stops capturing values at the limit while the program finishes', () => {
-  const trace = record('javascript', '"use strict"; let i=0; while(i<200) i++; console.log(i);');
+  const n = FRAME_LIMIT * 2;
+  const trace = record('javascript', `"use strict"; let i=0; while(i<${n}) i++; console.log(i);`);
   assert.equal(trace.frames.length, FRAME_LIMIT);
   assert.equal(trace.truncated, true);
-  assert.equal(trace.output.trim(), '200');
+  assert.equal(trace.output.trim(), String(n));
 });
 
 test('source maps keep original line numbers and recognise web documents', () => {
@@ -101,3 +102,29 @@ test('the last assignment is visible when a program finishes without printing', 
   assert.equal(trace.frames.at(-1)?.values.total, '6');
   assert.equal(trace.frames.at(-1)?.leaving, true);
 });
+
+const grids = [
+  [
+    'c',
+    '#include <stdio.h>\nint main(void){int cells[2][2]={{1,2},{3,4}}; cells[1][0]+=2; printf("%d",cells[1][0]);}',
+  ],
+  [
+    'cpp',
+    '#include <vector>\n#include <iostream>\nvoid grow(std::vector<std::vector<int>>& cells){cells[1][0]+=2;}\nint main(){std::vector<std::vector<int>> cells={{1,2},{3,4}}; grow(cells); std::cout<<cells[1][0];}',
+  ],
+  [
+    'java',
+    'class Main {public static void main(String[] args){int[][] cells={{1,2},{3,4}}; cells[1][0]+=2; System.out.print(cells[1][0]);}}',
+  ],
+  ['javascript', 'const cells=[[1,2],[3,4]]; cells[1][0]+=2; console.log(cells[1][0]);'],
+  ['python', 'cells=[[1,2],[3,4]]\ncells[1][0]+=2\nprint(cells[1][0])'],
+];
+for (const [language, source] of grids) {
+  test(language + ' records real nested collection updates', (t) => {
+    if (spawnSync(runtimes[language].command, ['--version']).status !== 0)
+      return t.skip('Runtime unavailable');
+    const r = record(language, source);
+    assert.equal(r.output.trim(), '5');
+    for (const value of ['3', '5']) assert.ok(r.frames.some((f) => f.grids?.cells?.[1]?.[0] === value));
+  });
+}

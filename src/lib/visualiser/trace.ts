@@ -1,11 +1,13 @@
 import type { SyntaxNode } from '@lezer/common';
 import { children, parse } from './source';
 
-export const FRAME_LIMIT = 120;
+// Long enough for a small search or backtracking run to reach its interesting writes.
+export const FRAME_LIMIT = 1500;
 export interface Frame {
   line: number;
   at?: number;
   leaving?: boolean;
+  grids?: Record<string, string[][]>;
   values: Partial<Record<string, string | string[]>>;
   output: string;
 }
@@ -15,7 +17,7 @@ export interface Recording {
   output: string;
 }
 
-type Binding = { name: string; type: string; array?: boolean };
+type Binding = { name: string; type: string; array?: boolean; container?: 'vector' | 'matrix' };
 type Edit = { pos: number; text: string };
 const blocks = new Set(['Script', 'Block', 'CompoundStatement']);
 const bodies = new Set([
@@ -35,10 +37,28 @@ function bindings(node: SyntaxNode, source: string, language: string): Binding[]
     return parts.filter((p) => p.name === 'VariableDefinition').map((p) => ({ name: raw(p), type: 'js' }));
   }
   if (parts.some((p) => raw(p) === 'volatile')) return [];
+  if (language === 'cpp') {
+    const template = node.getChild('TemplateType');
+    // Match only std::vector of numeric primitives, with at most two dimensions.
+    const vector =
+      template &&
+      /^(?:std::)?vector<((?:(?:std::)?vector<)?(?:int|long|short|float|double|unsigned|bool)>?)>$/.exec(
+        raw(template).replace(/\s+/g, ''),
+      );
+    if (vector) {
+      const container = vector[1].includes('<') ? ('matrix' as const) : ('vector' as const);
+      const declarators = parts.flatMap((p) => (p.name === 'InitDeclarator' ? [p.firstChild] : [p]));
+      return declarators.flatMap((p) => {
+        const id = p?.name === 'ReferenceDeclarator' ? p.getChild('Identifier') : p;
+        return id?.name === 'Identifier' ? [{ name: raw(id), type: 'vector', container }] : [];
+      });
+    }
+  }
   const arrayType = node.getChild('ArrayType');
   const primitive =
     parts.find((p) => p.name === 'PrimitiveType' || p.name === 'SizedTypeSpecifier') ??
-    arrayType?.getChild('PrimitiveType');
+    arrayType?.getChild('PrimitiveType') ??
+    arrayType?.getChild('ArrayType')?.getChild('PrimitiveType');
   if (!primitive) return [];
   const type = raw(primitive);
   if (
@@ -62,6 +82,11 @@ function bindings(node: SyntaxNode, source: string, language: string): Binding[]
     ) {
       list.push({ name: raw(name.firstChild), type, array: true });
     }
+    if (name.name === 'ArrayDeclarator' && decl.getChild('InitializerList')) {
+      const inner = name.firstChild;
+      if (inner?.name === 'ArrayDeclarator' && inner.firstChild?.name === 'Identifier')
+        list.push({ name: raw(inner.firstChild), type, container: 'matrix' });
+    }
   }
   if (
     /Parameter(Declaration)?$/.test(node.name) ||
@@ -77,11 +102,11 @@ function pythonTrace(source: string, mark: string, executable: string) {
   return `import sys as _sys, json as _json, itertools as _it
 _source = ${JSON.stringify(executable)}
 _count = 0
-def _value(v):
+def _value(v, depth=0):
     if type(v) in (int, float, bool, str, type(None)):
         return str(v)[:80] if type(v) != int or v.bit_length() < 256 else "<large integer>"
     if type(v) in (list, tuple):
-        return [_value(x) if type(x) in (int, float, bool, str, type(None)) else type(x).__name__ for x in v[:12]] + (["…"] if len(v) > 12 else [])
+        return [_value(x, depth+1) if type(x) in (int, float, bool, str, type(None)) or (depth == 0 and type(x) in (list, tuple)) else type(x).__name__ for x in v[:12]] + (["…"] if len(v) > 12 else [])
     return "<" + type(v).__name__ + ">"
 def _watch(f, event, arg):
     global _count
@@ -128,6 +153,20 @@ export function instrument(source: string, language: string, mark: string, execu
     }
     const fields = vars.map((b, i) => {
       const prefix = `fputs("${i ? ',' : ''}\\\"${b.name}\\\":",stdout);`;
+      if (language === 'c' && b.container === 'matrix') {
+        const row = helper + 'r',
+          col = helper + 'c',
+          grid = b.name;
+        return (
+          prefix +
+          `putchar('[');for(size_t ${row}=0;${row}<12&&${row}<sizeof(${grid})/sizeof(${grid}[0]);++${row}){
+          if(${row})putchar(',');putchar('[');
+          for(size_t ${col}=0;${col}<12&&${col}<sizeof(${grid}[0])/sizeof(${grid}[0][0]);++${col}){
+            if(${col})putchar(',');${cValue(b, grid + '[' + row + '][' + col + ']')}
+          }putchar(']');}putchar(']');`
+        );
+      }
+      if (b.container) return prefix + `${helper}${b.container}(${b.name});`;
       if (!b.array) return prefix + cValue(b, b.name);
       return (
         prefix +
@@ -222,17 +261,21 @@ function ${helper}(at, read) {
   ${helper}.count = count + 1;
   if (count === ${FRAME_LIMIT}) { process.stdout.write("${mark}END\\x1f"); return; }
   const primitive = v => v === null || ['number','string','boolean','bigint','undefined'].includes(typeof v) ? String(v).slice(0,80) : '<object>';
+  const sampleArray = (v,depth=0) => {
+    const cells=[];
+    for (let i=0; i<Math.min(v.length,12); i++) {
+      const cell=Object.getOwnPropertyDescriptor(v,String(i));
+      if (!cell || !('value' in cell)) cells.push(cell ? '<accessor>' : '<empty>');
+      else cells.push(!depth && Array.isArray(cell.value) ? sampleArray(cell.value,1) : primitive(cell.value));
+    }
+    if (v.length>12) cells.push('…');
+    return cells;
+  };
   const values = Object.create(null);
   try {
     for (const [k,v] of Object.entries(read())) {
       if (!Array.isArray(v)) { values[k] = primitive(v); continue; }
-      const cells = [];
-      for (let i = 0; i < Math.min(v.length,12); i++) {
-        const cell = Object.getOwnPropertyDescriptor(v, String(i));
-        cells.push(!cell ? '<empty>' : 'value' in cell ? primitive(cell.value) : '<accessor>');
-      }
-      if (v.length > 12) cells.push('…');
-      values[k] = cells;
+      values[k] = sampleArray(v);
     }
   } catch {}
   process.stdout.write("${mark}"+at+"\\t"+JSON.stringify(values)+"\\x1f");
@@ -246,7 +289,7 @@ class ${helper} {
     if (v == null) return "\"null\"";
     if (v instanceof Character) return String.format("\"\\u%04x\"", (int)(char)v);
     if (!v.getClass().isArray()) return "\"" + v + "\"";
-    if (!v.getClass().getComponentType().isPrimitive()) return "\"<array>\"";
+    if (!v.getClass().getComponentType().isPrimitive() && !(v.getClass().getComponentType().isArray() && v.getClass().getComponentType().getComponentType().isPrimitive())) return "\"<array>\"";
     StringBuilder result = new StringBuilder("[");
     int size = java.lang.reflect.Array.getLength(v);
     for (int i=0; i<Math.min(size,12); i++) {
@@ -264,7 +307,21 @@ class ${helper} {
 }
 `
       : `#include <stdio.h>
-${language === 'cpp' ? '#include <iostream>' : ''}
+${
+  language === 'cpp'
+    ? `#include <iostream>
+#include <vector>
+template<class T> static size_t ${helper}size(const std::vector<T>& v){return v.size();}
+template<class T,size_t N> static size_t ${helper}size(const T(&)[N]){return N;}
+template<class T> static void ${helper}vector(const T& v){
+  putchar('[');for(size_t i=0;i<${helper}size(v)&&i<12;i++){if(i)putchar(',');printf("\\"%.12Lg\\"",(long double)v[i]);}putchar(']');
+}
+template<class R> static void ${helper}matrix(const R& m){
+  putchar('[');for(size_t i=0;i<${helper}size(m)&&i<12;i++){if(i)putchar(',');${helper}vector(m[i]);}putchar(']');
+}
+`
+    : ''
+}
 static int ${helper}(int at){static unsigned count;if(count>${FRAME_LIMIT})return 0;${language === 'cpp' ? 'std::cout.flush();' : ''}if(count++==${FRAME_LIMIT}){fputs("${mark}END\\037",stdout);return 0;}printf("${mark}%d\\t",at);return 1;}
 `;
   // Work forwards. A closing brace at a shared boundary precedes the next probe.
@@ -301,7 +358,19 @@ export function readRecording(stdout: string, source: string, language: string, 
         try {
           const decoded = JSON.parse(payload.slice(tab + 1));
           const values: Frame['values'] = Object.create(null);
+          const grids: NonNullable<Frame['grids']> = Object.create(null);
           for (const [name, v] of Object.entries(decoded).slice(0, 8)) {
+            if (
+              Array.isArray(v) &&
+              v.some(Array.isArray) &&
+              v.every((row) => Array.isArray(row) || row === '…')
+            ) {
+              grids[name] = v
+                .filter(Array.isArray)
+                .slice(0, 12)
+                .map((row) => row.slice(0, 12).map((cell) => String(cell).slice(0, 80)));
+              continue;
+            }
             if (Array.isArray(v)) values[name] = v.slice(0, 13).map((x) => String(x).slice(0, 80));
             else values[name] = String(v).slice(0, 80);
           }
@@ -310,6 +379,7 @@ export function readRecording(stdout: string, source: string, language: string, 
             ...(leaving ? { leaving: true } : {}),
             at: language === 'python' ? undefined : loc,
             values,
+            ...(Object.keys(grids).length ? { grids } : {}),
             output: output.slice(-1600),
           });
         } catch {

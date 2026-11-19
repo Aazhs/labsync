@@ -1,34 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { compileDrawing } from '../src/lib/visualiser/drawing';
-import { DrawingFigure } from '../src/components/visualiser/GeminiDrawing';
 import { POST } from '../src/app/api/visualiser/drawing/route';
 
 const figure = `<figure><svg viewBox="0 0 600 260"><g data-lines="2-3"><circle cx="20" cy="20" r="10" />
 <text data-var="total">total</text></g><g data-items="scores">
 <rect width="30" height="20"/><text data-item="">item</text></g></svg><figcaption>Add each score.</figcaption></figure>`;
-
-test('the generated figure follows the source line and binds recorded values locally', () => {
-  const drawing = compileDrawing(figure, 3);
-  const render = (values?: Record<string, string | string[]>) =>
-    renderToStaticMarkup(
-      createElement(DrawingFigure, {
-        drawing,
-        line: 2,
-        previous: { line: 1, output: '', values: { scores: ['7', '8'] } },
-        frame: values ? { line: 2, output: '', values } : undefined,
-      }),
-    );
-  assert.match(render(), />total<\/text>/);
-  assert.match(render(), /scores\[i\]/);
-  const frame = render({ total: '17', scores: ['7', '10'], i: '1' });
-  for (const value of ['17', '7', '10']) assert.ok(frame.includes('>' + value + '</text>'));
-  assert.match(frame, /vs-ai-hot/);
-  assert.match(frame, /vs-ai-changed/);
-  assert.match(render({}), />—<\/text>/);
-});
 
 test('only supported shapes and drawing attributes reach the renderer', () => {
   const drawing = compileDrawing(
