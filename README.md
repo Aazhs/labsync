@@ -8,7 +8,7 @@
 
 Diagnose every student’s code. Before they even raise a hand.
 
-[Live Demo](https://labsync.vercel.app) · [Task Board](TASKS.md) · [Report Bug](https://github.com/Aazhs/labsync/issues) · [Request Feature](https://github.com/Aazhs/labsync/issues)
+[Live Demo](https://labsyncc.vercel.app) · [Task Board](TASKS.md) · [Report Bug](https://github.com/Aazhs/labsync/issues) · [Request Feature](https://github.com/Aazhs/labsync/issues)
 
 </div>
 
