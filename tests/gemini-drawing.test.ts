@@ -61,7 +61,10 @@ test('drawing route handles missing configuration, provider errors and successfu
   provider.mock.mockImplementation(async () =>
     Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: figure }] } }] }),
   );
+  provider.mock.mockImplementationOnce(async () => new Response(null, { status: 503 }));
+  const callsBeforeRecovery = provider.mock.callCount();
   const result = await POST(request());
+  assert.equal(provider.mock.callCount() - callsBeforeRecovery, 2);
   assert.equal(result.status, 200);
   assert.equal((await result.json()).drawing.caption, 'Add each score.');
   assert.equal(

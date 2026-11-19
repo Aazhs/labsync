@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { createRateLimiter, getClientIp } from '@/lib/rateLimit';
 import { compileDrawing } from '@/lib/visualiser/drawing';
 
@@ -36,32 +37,40 @@ export async function POST(request: Request) {
   const lines = (body.source as string).split(/\r?\n/);
   const signal = AbortSignal.any([request.signal, AbortSignal.timeout(45_000)]);
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-      {
-        method: 'POST',
-        signal,
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: system }] },
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: JSON.stringify({
-                    language: body.language,
-                    lines: lines.map((text, i) => [i + 1, text]),
-                  }),
-                },
-              ],
-            },
-          ],
-          generationConfig: { maxOutputTokens: 8192 },
-        }),
-      },
-    );
+    const generate = () =>
+      fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        {
+          method: 'POST',
+          signal,
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      language: body.language,
+                      lines: lines.map((text, i) => [i + 1, text]),
+                    }),
+                  },
+                ],
+              },
+            ],
+            generationConfig: { maxOutputTokens: 8192 },
+          }),
+        },
+      );
+    let res = await generate();
+    if ([500, 502, 503, 504].includes(res.status)) {
+      // A regional provider failure can clear between attempts. Both share the caller's deadline.
+      await res.body?.cancel();
+      await delay(750, undefined, { signal });
+      res = await generate();
+    }
     if (res.status === 429) return fail('Gemini has reached its quota. Try again later.', 429);
     if ([400, 401, 403, 404].includes(res.status))
       return fail('Gemini rejected the drawing request. Check the server API key and drawing model.', 502);
