@@ -232,6 +232,10 @@ const DEMO_TEACHER = {
   password: 'labsync-demo-account',
 };
 
+export function isDemoTeacher(teacher: TeacherUser | null): boolean {
+  return teacher?.email === DEMO_TEACHER.email;
+}
+
 const CONFIRM_EMAIL_HELP =
   'The demo account needs email confirmation turned off: in Supabase, open Authentication → Sign In / Providers → Email and switch off “Confirm email”.';
 

@@ -275,6 +275,17 @@ export async function joinLobby(
   studentName: string,
   prn: string
 ): Promise<{ session: StudentSession; lobby: LabLobby }> {
+  const joined = await registerStudent(roomCode, studentName, prn);
+  saveStudentSession(joined.session);
+  return joined;
+}
+
+/** Take a seat in a lab without making it this browser's student session (used for demo seats). */
+export async function registerStudent(
+  roomCode: string,
+  studentName: string,
+  prn: string
+): Promise<{ session: StudentSession; lobby: LabLobby }> {
   const code = roomCode.trim();
   const name = studentName.trim();
   const cleanPrn = prn.trim().toUpperCase();
@@ -326,7 +337,6 @@ export async function joinLobby(
     session = { studentId: student.id, accessToken, lobbyId: lobby.id, roomCode: code, name, prn: cleanPrn };
   }
 
-  saveStudentSession(session);
   return { session, lobby };
 }
 

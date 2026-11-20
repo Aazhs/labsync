@@ -172,6 +172,10 @@ src/
 5. The AI assistant offers a guided hint — prompting reasoning, not spoon-feeding
 6. If unresolved, the issue escalates to the professor's dashboard with the diagnosis attached
 
+### Teacher demo class
+
+**Try the live demo** signs in as the shared demo teacher and opens a ready-made C++ lab, *Arrays and searching*, with eight sample students. They're in different states: asked for help, stuck on a syntax or logic error, coding, and done. Select a student and choose **Open student view**, or use the name buttons along the top. That opens the student's editor in a new tab, with their code and help status, and edits there show up on the dashboard live. Any teacher can open the same class with **C++ demo class**. A student's view opens only in the browser that created the class. Demo labs older than two hours are ended when a new one is created.
+
 ---
 
 ## Deployment

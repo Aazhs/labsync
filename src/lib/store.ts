@@ -345,7 +345,10 @@ export function workspaceStorageKey(base: string): string {
   const params = new URLSearchParams(window.location.search);
   const room = window.location.pathname.startsWith('/ide') ? params.get('room') : null;
   if (!room) return base;
-  return `${base}:${room}:${params.get('role') === 'teacher' ? 'teacher' : 'student'}`;
+  if (params.get('role') === 'teacher') return `${base}:${room}:teacher`;
+  // Demo seats opened from the dashboard share one browser, so each keeps its own code.
+  const seat = params.get('student');
+  return `${base}:${room}:student${seat ? ':' + seat : ''}`;
 }
 
 const safeLocalStorage = {

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Check, Copy, Maximize2, Moon, Pause, Play, Plus, Square, Sun, X } from 'lucide-react';
+import { Check, Copy, ExternalLink, FlaskConical, Maximize2, Moon, Pause, Play, Plus, Square, Sun, X } from 'lucide-react';
 import {
   effectiveStudentStatus,
   getLobbyStudents,
@@ -16,7 +16,10 @@ import {
   subscribeToLobbyUpdates,
   updateLobbyStatus,
 } from '@/lib/lobbyService';
-import { logoutTeacher, restoreTeacherSession, TeacherUser } from '@/lib/teacherAuth';
+import { isDemoTeacher, logoutTeacher, restoreTeacherSession, TeacherUser } from '@/lib/teacherAuth';
+import { createDemoClass, DEMO_LAB_TITLE, DemoSeat, getDemoSeats } from '@/lib/demoClass';
+
+const DEMO_LAB_TTL_MS = 2 * 60 * 60 * 1000;
 import { LANGUAGES } from '@/lib/store';
 import { useTheme } from '@/lib/theme';
 import CreateLobbyModal from '@/components/CreateLobbyModal';
@@ -104,11 +107,48 @@ export default function DashboardPage() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [creatingDemo, setCreatingDemo] = useState(false);
 
   const activeLobby = lobbies.find((l) => l.id === activeId) ?? null;
   const roomCode = activeLobby?.room_code;
 
   const reportError = (err: unknown, fallback: string) => setError(err instanceof Error ? err.message : fallback);
+
+  // Sample seats this browser can open, for the demo class. They are saved before the lab is selected.
+  // A small localStorage read; the dashboard renders only after sign-in, on the client.
+  const demoSeats: Record<string, DemoSeat> = roomCode ? getDemoSeats(roomCode) : {};
+
+  /** Open the demo class: reuse one this browser set up, otherwise create it with sample students. */
+  const openDemoClass = useCallback(
+    async (t: TeacherUser, list: LabLobby[]) => {
+      const existing = list.find((l) => l.title === DEMO_LAB_TITLE && Object.keys(getDemoSeats(l.room_code)).length);
+      if (existing) {
+        setActiveId(existing.id);
+        return;
+      }
+      setCreatingDemo(true);
+      setError(null);
+      try {
+        // Many visitors share the demo account. End its demo labs nobody has used for a while.
+        const stale = list.filter(
+          (l) => l.title === DEMO_LAB_TITLE && Date.now() - new Date(l.created_at).getTime() > DEMO_LAB_TTL_MS
+        );
+        await Promise.allSettled(stale.map((l) => updateLobbyStatus(l.room_code, 'completed')));
+        if (stale.length) setLobbies((prev) => prev.filter((l) => !stale.includes(l)));
+        const lobby = await createDemoClass(t);
+        setLobbies((prev) => [lobby, ...prev.filter((l) => l.id !== lobby.id)]);
+        setActiveId(lobby.id);
+        setStudents([]);
+        setSelectedId(null);
+        setFilter('all');
+      } catch (err) {
+        reportError(err, 'Could not set up the demo class.');
+      } finally {
+        setCreatingDemo(false);
+      }
+    },
+    []
+  );
 
   // Idle detection depends on the clock.
   useEffect(() => {
@@ -138,6 +178,12 @@ export default function DashboardPage() {
         setTeacher(t);
         setAuthChecked(true);
         await loadLobbies(t);
+        // The shared demo account lands in a ready-made C++ class.
+        if (isDemoTeacher(t) && !cancelled) {
+          const list = await listTeacherLobbies(t);
+          if (!list.some((l) => l.title === DEMO_LAB_TITLE && Object.keys(getDemoSeats(l.room_code)).length))
+            await openDemoClass(t, list);
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -147,7 +193,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [router, loadLobbies]);
+  }, [router, loadLobbies, openDemoClass]);
 
   // Roster for the selected lab: initial load, then realtime updates.
   useEffect(() => {
@@ -280,6 +326,15 @@ export default function DashboardPage() {
             <Plus size={14} />
             New lab
           </button>
+          <button
+            className="btn btn-ghost db-btn"
+            disabled={creatingDemo}
+            onClick={() => openDemoClass(teacher, lobbies)}
+            title="A C++ lab with sample students whose screens you can open"
+          >
+            <FlaskConical size={14} />
+            {creatingDemo ? 'Setting up demo…' : 'C++ demo class'}
+          </button>
         </div>
         <div className="db-top-right">
           <span className="db-teacher">{teacher.name}</span>
@@ -303,6 +358,27 @@ export default function DashboardPage() {
           Demo mode: labs are saved in this browser only. Open student tabs in this same browser to try it.
         </div>
       )}
+      {Object.keys(demoSeats).length > 0 && (
+        <div className="db-notice db-demo-strip">
+          <span>Demo class. Open any sample student&apos;s screen to see what they see:</span>
+          <div className="db-demo-students">
+            {students
+              .filter((s) => demoSeats[s.id])
+              .map((s) => (
+                <a
+                  key={s.id}
+                  className="btn btn-secondary db-btn"
+                  href={`/ide?room=${s.room_code}&student=${s.id}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  {s.student_name.split(' ')[0]}
+                  <ExternalLink size={12} />
+                </a>
+              ))}
+          </div>
+        </div>
+      )}
       {error && (
         <div className="db-notice db-notice-error" role="alert">
           <span>{error}</span>
@@ -312,12 +388,22 @@ export default function DashboardPage() {
 
       {!activeLobby ? (
         <div className="db-empty">
-          <h1>Create your first lab</h1>
+          <h1>{creatingDemo ? 'Setting up the C++ demo class…' : 'Create your first lab'}</h1>
           <p>You will get a six-digit code to share with your class. Students join with it, their name and their PRN.</p>
-          <button className="btn btn-primary db-btn-lg" onClick={() => setShowCreate(true)}>
-            <Plus size={16} />
-            New lab
-          </button>
+          <div className="db-empty-actions">
+            <button className="btn btn-primary db-btn-lg" onClick={() => setShowCreate(true)}>
+              <Plus size={16} />
+              New lab
+            </button>
+            <button
+              className="btn btn-secondary db-btn-lg"
+              disabled={creatingDemo}
+              onClick={() => openDemoClass(teacher, lobbies)}
+            >
+              <FlaskConical size={16} />
+              Try a C++ demo class
+            </button>
+          </div>
         </div>
       ) : (
         <>
@@ -462,6 +548,18 @@ export default function DashboardPage() {
                     </span>
                   )}
                 </div>
+
+                {demoSeats[selected.id] && (
+                  <a
+                    className="btn btn-primary db-btn db-detail-open"
+                    href={`/ide?room=${selected.room_code}&student=${selected.id}`}
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    <ExternalLink size={13} />
+                    Open student view
+                  </a>
+                )}
 
                 <div className="db-detail-file">{selected.current_file || 'Code'}</div>
                 <pre className="db-detail-code">

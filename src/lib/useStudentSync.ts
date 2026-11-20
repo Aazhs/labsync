@@ -17,14 +17,15 @@ const STUCK_AFTER_FAILURES = 3;
 
 type HelpState = { handRaised: boolean; done: boolean };
 
-function helpStateKey(roomCode: string) {
-  return `labsync_student_help_${roomCode}`;
+// Keyed by seat as well as room: demo seats opened from the dashboard share one browser.
+function helpStateKey(session: StudentSession) {
+  return `labsync_student_help_${session.roomCode}_${session.studentId}`;
 }
 
-function readHelpState(roomCode: string | undefined): HelpState {
-  if (!roomCode || typeof window === 'undefined') return { handRaised: false, done: false };
+function readHelpState(session: StudentSession | null): HelpState {
+  if (!session || typeof window === 'undefined') return { handRaised: false, done: false };
   try {
-    return { handRaised: false, done: false, ...JSON.parse(localStorage.getItem(helpStateKey(roomCode)) || '{}') };
+    return { handRaised: false, done: false, ...JSON.parse(localStorage.getItem(helpStateKey(session)) || '{}') };
   } catch {
     return { handRaised: false, done: false };
   }
@@ -40,7 +41,7 @@ function snapshotOf(files: ProjectFile[]): string {
  * help requests. Does nothing when `session` is null or `enabled` is false.
  */
 export function useStudentSync(session: StudentSession | null, enabled: boolean) {
-  const [help, setHelp] = useState<HelpState>(() => readHelpState(session?.roomCode));
+  const [help, setHelp] = useState<HelpState>(() => readHelpState(session));
   const [syncError, setSyncError] = useState<string | null>(null);
   const failuresRef = useRef(0);
   const helpRef = useRef(help);
@@ -97,7 +98,7 @@ export function useStudentSync(session: StudentSession | null, enabled: boolean)
       setHelp(next);
       if (session) {
         try {
-          localStorage.setItem(helpStateKey(session.roomCode), JSON.stringify(next));
+          localStorage.setItem(helpStateKey(session), JSON.stringify(next));
         } catch {}
       }
     },

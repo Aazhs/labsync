@@ -15,6 +15,7 @@ import {
   updateLobbyStatus,
 } from '@/lib/lobbyService';
 import { getTeacherSession } from '@/lib/teacherAuth';
+import { getDemoSeat } from '@/lib/demoClass';
 import { useStudentSync } from '@/lib/useStudentSync';
 import IDEHeader from '@/components/IDEHeader';
 import IDESidebar from '@/components/IDESidebar';
@@ -83,12 +84,17 @@ function IDEPageContent() {
   const searchParams = useSearchParams();
   const roomCode = searchParams.get('room');
   const wantsTeacher = searchParams.get('role') === 'teacher';
+  // A teacher opening one of the demo class's sample students from the dashboard.
+  const demoStudentId = wantsTeacher ? null : searchParams.get('student');
 
   const [visualising, setVisualising] = useState(false);
   const [lobby, setLobby] = useState<LabLobby | null>(null);
   const [roomError, setRoomError] = useState<string | null>(null);
   const [teacher] = useState(() => getTeacherSession());
-  const [studentSession] = useState(() => (roomCode ? getStudentSession(roomCode) : null));
+  const [demoSeat] = useState(() => (roomCode && demoStudentId ? getDemoSeat(roomCode, demoStudentId) : null));
+  const [studentSession] = useState(() =>
+    roomCode ? (demoStudentId ? demoSeat : getStudentSession(roomCode)) : null
+  );
   const [workspaceReady, setWorkspaceReady] = useState(!roomCode);
   const wasFollowingRef = useRef(false);
 
@@ -116,7 +122,9 @@ function IDEPageContent() {
 
       if (store.workspaceRoom !== next.room_code) {
         const lang = LANGUAGES.find((l) => l.name === next.language) ?? LANGUAGES[0];
-        const initialCode = isOwner ? next.broadcast_code || next.starter_code : next.starter_code;
+        const initialCode = isOwner
+          ? next.broadcast_code || next.starter_code
+          : demoSeat?.code ?? next.starter_code;
         store.loadWorkspace(lang, initialCode || null, next.room_code);
       }
       setWorkspaceReady(true);
@@ -132,7 +140,7 @@ function IDEPageContent() {
       if (!viewingAllowed && wasFollowingRef.current) store.setShowReferencePane(false);
       wasFollowingRef.current = following;
     },
-    [teacher, wantsTeacher]
+    [teacher, wantsTeacher, demoSeat]
   );
 
   // The saved workspace is keyed by room and role; reload it for this URL (matters after

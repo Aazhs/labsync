@@ -1541,6 +1541,11 @@ textarea.input { height: auto; padding: 10px 12px; resize: vertical; line-height
   padding: 7px 20px; font-size: 13px; color: var(--text-secondary); background: var(--bg-tertiary); border-bottom: 1px solid var(--border);
 }
 .db-notice-error { color: var(--accent-danger-light); background: var(--accent-danger-bg); }
+.db-demo-strip { flex-wrap: wrap; justify-content: flex-start; padding: 8px 20px; }
+.db-demo-students { display: flex; flex-wrap: wrap; gap: 6px; }
+.db-demo-students .db-btn { gap: 5px; }
+.db-empty-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.db-detail-open { margin: 0 20px 14px; align-self: flex-start; gap: 6px; }
 
 .db-empty { margin: auto; max-width: 440px; text-align: center; padding: 24px 16px; }
 .db-empty h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 10px; }
