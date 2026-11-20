@@ -8,12 +8,7 @@ export default function AIHintPanel() {
   const {
     hintMessages,
     isHintLoading,
-    code,
-    language,
-    lastResult,
-    addHintMessage,
     clearHints,
-    setIsHintLoading,
   } = useIDEStore();
   
   const [inputValue, setInputValue] = useState('');
@@ -26,13 +21,23 @@ export default function AIHintPanel() {
   }, [hintMessages, isHintLoading]);
 
   const requestHint = async (customMessage?: string) => {
-    const errorText = lastResult?.stderr || lastResult?.compile_output || lastResult?.status?.description || '';
-    
-    const userMsg = customMessage || `I'm stuck. Here's my error: ${errorText}`;
-    
+    const {
+      isHintLoading, hintMessages, code, language, lastResult, files, activeFileId,
+      addHintMessage, setIsHintLoading,
+    } = useIDEStore.getState();
+    if (isHintLoading) return;
+
+    const activeFile = files.find((file) => file.id === activeFileId);
+    const sourceFile = activeFile && /\.(md|txt)$/.test(activeFile.name)
+      ? files.find((file) => file.isEntrypoint) ?? activeFile
+      : activeFile;
+    const fileLanguage = sourceFile?.language ?? language.name;
+    const run = fileLanguage === language.name && fileLanguage !== 'web' ? lastResult : null;
+    const message = customMessage || 'Help me find my next debugging step.';
+
     addHintMessage({
       role: 'user',
-      content: userMsg,
+      content: message,
       timestamp: Date.now(),
     });
     
@@ -43,9 +48,14 @@ export default function AIHintPanel() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          code,
-          error: errorText,
-          language: language.label,
+          code: sourceFile?.content ?? code,
+          language: fileLanguage === language.name ? language.label : fileLanguage,
+          filename: sourceFile?.name,
+          error: run?.stderr,
+          compileOutput: run?.compile_output,
+          status: run?.status.id === 3 ? 'Accepted' : run?.status.description,
+          output: run?.stdout,
+          message,
           history: hintMessages.map((m) => ({
             role: m.role,
             content: m.content,
@@ -63,7 +73,7 @@ export default function AIHintPanel() {
     } catch {
       addHintMessage({
         role: 'assistant',
-        content: 'Failed to connect to the hint service. Try checking the error message yourself — the first line usually tells you what went wrong.',
+        content: 'The hint service could not be reached. Try sending your question again.',
         timestamp: Date.now(),
       });
     } finally {
@@ -86,7 +96,7 @@ export default function AIHintPanel() {
           <Sparkles size={13} style={{ color: 'var(--accent-primary-light)' }} />
           <span>AI Lab Assistant</span>
         </div>
-        <button className="btn-icon" onClick={clearHints} title="Clear chat">
+        <button className="btn-icon" onClick={clearHints} title="Clear chat" disabled={isHintLoading}>
           <Trash2 size={13} />
         </button>
       </div>
@@ -190,6 +200,7 @@ export default function AIHintPanel() {
         />
         <button
           type="submit"
+          aria-label="Send question"
           className="btn btn-primary"
           disabled={isHintLoading || !inputValue.trim()}
           style={{ padding: '6px 10px' }}
