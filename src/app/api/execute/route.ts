@@ -199,12 +199,13 @@ function prepareExecutableCode(code: string, languageId: number): string {
 }
 
 const WAITING_FOR_INPUT_MARKERS = [
-  'ios_base::failure',
-  'iostream_category',
   '[LabSync:WAITING_INPUT]',
   'EOFError',
   'NoSuchElementException',
 ];
+
+// GCC's libstdc++ reports the cin guard's exception as std::__ios_failure.
+const CIN_EOF_MARKERS = ['ios_base::failure', 'iostream_category', 'std::__ios_failure'];
 
 function errorResponse(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -267,7 +268,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (result.stderr && WAITING_FOR_INPUT_MARKERS.some((m) => result.stderr!.includes(m))) {
+  const stderr = result.stderr ?? '';
+  const cinNeedsInput =
+    languageId === 54 &&
+    rawCode.includes('cin') &&
+    CIN_EOF_MARKERS.some((marker) => stderr.includes(marker));
+  const needsInput = cinNeedsInput || WAITING_FOR_INPUT_MARKERS.some((marker) => stderr.includes(marker));
+  if (result.status.id !== 3 && needsInput) {
     result.status = { id: 13, description: 'Waiting for Input' };
     result.is_missing_input = true;
     result.stderr = null;
